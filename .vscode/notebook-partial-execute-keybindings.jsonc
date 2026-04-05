@@ -1,0 +1,20 @@
+// =============================================================================
+// セル内の「選択した数行だけ」または「カーソル行だけ」を実行するためのキー設定の例
+// =============================================================================
+// 手順:
+//   1. 拡張機能「Notebook: Run Selection」(ChristofKaufmann.nb-run-selection) を入れる
+//      （.vscode/extensions.json の推奨一覧に含めてあります）
+//   2. Ctrl+Shift+P → 「Preferences: Open Keyboard Shortcuts (JSON)」
+//   3. 下の [ ... ] の中身を、あなたの keybindings.json の配列に追記する（カンマの位置に注意）
+//
+// 既定の Shift+Enter（セル実行して下へ）と競合するため、ここでは Ctrl+Shift+Enter を割り当てています。
+// 別のキーにしたい場合は "key" だけ書き換えてください。
+// =============================================================================
+
+[
+  {
+    "key": "ctrl+shift+enter",
+    "command": "nb-run-selection.runSelectionOrLine",
+    "when": "notebookCellEditorFocused && editorLangId == 'python'"
+  }
+]

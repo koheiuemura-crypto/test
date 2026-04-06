@@ -18,27 +18,30 @@ drive.mount("/content/drive")
 def resolve_data_storage() -> Path:
     """データ集計・DataStorage フォルダを特定（Colab / ローカル）。"""
     candidates: list[Path] = []
+
+    # スクリプトと同じディレクトリ直下（.py 実行時）
     try:
-        candidates.append(Path(__file__).resolve().parent / "データ集計・DataStorage")
+        here = Path(__file__).resolve().parent
+        candidates.append(here / "データ集計・DataStorage")
     except NameError:
-        pass
-    drive_root = Path("/content/drive/MyDrive")
-    if drive_root.exists():
-        candidates.extend(
-            [
-                drive_root / "OMNIA/考える/アナリティクス/データ集計・DataStorage",
-                drive_root / "OMNIA/アナリティクス/データ集計・DataStorage",
-            ]
-        )
+        pass  # ノートブック等で __file__ がない場合
+
+    # Google Colab（Drive マウント後）
+    drive_my = Path("/content/drive/MyDrive")
+    if drive_my.is_dir():
+        candidates.append(drive_my / "OMNIA/考える/アナリティクス/データ集計・DataStorage")
+        candidates.append(drive_my / "OMNIA/アナリティクス/データ集計・DataStorage")
+
+    # カレントディレクトリ基準
     candidates.append(Path("データ集計・DataStorage"))
     candidates.append(Path.cwd() / "データ集計・DataStorage")
-    for c in candidates:
-        if c.is_dir():
-            return c.resolve()
-    raise FileNotFoundError(
-        "データ集計・DataStorage が見つかりません。試したパス:\n"
-        + "\n".join(f"  - {p}" for p in candidates)
-    )
+
+    for path in candidates:
+        if path.is_dir():
+            return path.resolve()
+
+    tried = "\n".join(f"  - {p}" for p in candidates)
+    raise FileNotFoundError(f"データ集計・DataStorage が見つかりません。試したパス:\n{tried}")
 
 
 DATA_STORAGE = resolve_data_storage()

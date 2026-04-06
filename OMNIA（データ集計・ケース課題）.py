@@ -268,7 +268,6 @@ def resolve_join_orders_dir() -> Path:
     msg += "\n".join(f"  - {d}" for d in candidates)
     raise FileNotFoundError(msg)
 
-
 # %%
 # 問題3: 還元祭クーポン（対象注文を抽出し、注文ごとに付与額とコードを算出）
 

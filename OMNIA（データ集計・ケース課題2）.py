@@ -17,7 +17,7 @@ OMNIA（データ集計・ケース課題2）
     課題1〜3: 読込・重複除去・マージ
     課題4〜6: フィルタ・型整形・日付変換
     課題7〜8: 遅延率集計・工程別要因分析
-    課題9: CSV 出力と（Colab 時）Google スプレッドシートへの書き込み
+    課題9: output フォルダの Excel（.xlsx）への集約出力と（Colab 時）Google スプレッドシートへの書き込み
 """
 
 # =============================================================================
@@ -84,8 +84,6 @@ if "google.colab" in sys.modules:
     from google.colab import drive
 
     drive.mount("/content/drive")
-
-os.chdir("/content/drive/MyDrive/OMNIA/考える/アナリティクス")
 
 # 以降の読み込みはすべてこのルートからの相対パスで行う。
 DATA_STORAGE = resolve_data_storage()
@@ -381,7 +379,7 @@ if not df_delay_bottleneck.empty:
 else:
     print("（遅延注文が0件、または工程列が算出できません）")
 
-# スプレッドシート・CSV に載せる列を絞る（ファイルサイズと可読性のバランス）。
+# スプレッドシート・Excel 明細シートに載せる列を絞る（ファイルサイズと可読性のバランス）。
 _detail_cols = (
     [
         "order_no",
@@ -399,28 +397,31 @@ df_delayed_export = df_delayed[_detail_cols].copy()
 
 # %% [markdown]
 # # 課題 9: スプレッドシートへのデータ抽出
-# 課題7・8の集計をスプレッドシート「Update」に書き込む（gspread）。併せて `output` フォルダに CSV も保存する。
-# シート: https://docs.google.com/spreadsheets/d/1Mw4zn8QdCor0ALa5u5x_jGbN9HoBVhWVR6Y5_lGeCZk/edit?gid=270722600#gid=270722600
+# 課題7・8の集計をスプレッドシート「Update」に書き込む（gspread）。併せて `output` フォルダに Excel（.xlsx）へ保存する。
+# シート: https://docs.google.com/spreadsheets/d/1CXJL7cXnyEzmL1JHZJtau-AZ6SS4W0SH/edit?gid=1132557014#gid=1132557014
 # 書き込み権限ないのでコピーしておきましょう
 
 # =============================================================================
-# 課題 9: ローカルに CSV 保存 +（Colab なら）スプレッドシート更新
+# 課題 9: ローカルに Excel 保存 +（Colab なら）スプレッドシート更新
 # =============================================================================
 # SPREADSHEET_ID:
 #   Google スプレッドシートの URL の /d/ と /edit の間の文字列。
 # WORKSHEET_TITLE:
 #   タブ名（存在しなければ空のワークシートを追加する処理あり）。
 # %%
-SPREADSHEET_ID = "1Mw4zn8QdCor0ALa5u5x_jGbN9HoBVhWVR6Y5_lGeCZk"
+SPREADSHEET_ID = "1CXJL7cXnyEzmL1JHZJtau-AZ6SS4W0SH"
 WORKSHEET_TITLE = "Update"
 
 # スクリプトとして実行すると __file__ がある。対話的に exec だけすると無いので cwd にフォールバック。
+# output 配下に「OMNIA（データ集計・ケース課題2）.xlsx」へ集約出力する
+# （例: G:\...\アナリティクス\output\OMNIA（データ集計・ケース課題2）.xlsx）
 if "__file__" in globals():
     _SCRIPT_ROOT = Path(__file__).resolve().parent
 else:
     _SCRIPT_ROOT = Path.cwd()
 OUTPUT_DIR = _SCRIPT_ROOT / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+EXCEL_OUTPUT_PATH = OUTPUT_DIR / "OMNIA（データ集計・ケース課題2）.xlsx"
 
 
 def _df_to_sheet_matrix(title: str, df: pd.DataFrame) -> list[list]:
@@ -462,22 +463,19 @@ def build_update_sheet_values() -> list[list]:
     return blocks
 
 
-# --- CSV 出力（utf-8-sig: Excel で文字化けしにくい BOM 付き UTF-8）---
-export_path = OUTPUT_DIR / "課題2_export_for_spreadsheet.csv"
-df_loop.to_csv(export_path, index=False, encoding="utf-8-sig")
-print(f"出力しました: {export_path}")
-
-export_path_delay = OUTPUT_DIR / "課題7_遅延率_日次.csv"
-df_delay_daily.to_csv(export_path_delay, index=False, encoding="utf-8-sig")
-print(f"出力しました: {export_path_delay}")
-
-export_path_stages = OUTPUT_DIR / "課題8_遅延要因_工程集計.csv"
-df_delay_stage_summary.to_csv(export_path_stages, index=False, encoding="utf-8-sig")
-print(f"出力しました: {export_path_stages}")
-
-export_path_delayed_detail = OUTPUT_DIR / "課題8_遅延注文明細.csv"
-df_delayed_export.to_csv(export_path_delayed_detail, index=False, encoding="utf-8-sig")
-print(f"出力しました: {export_path_delayed_detail}")
+# --- Excel 出力（1ファイル・複数シート。engine=openpyxl が必要: pip install openpyxl）---
+# シート名は Excel の 31 文字制限内に収める。
+try:
+    with pd.ExcelWriter(EXCEL_OUTPUT_PATH, engine="openpyxl") as writer:
+        df_loop.to_excel(writer, sheet_name="課題2_整形データ", index=False)
+        df_delay_daily.to_excel(writer, sheet_name="課題7_遅延率日次", index=False)
+        df_delay_stage_summary.to_excel(writer, sheet_name="課題8_工程集計", index=False)
+        df_delay_bottleneck.to_excel(writer, sheet_name="課題8_ボトルネック", index=False)
+        df_delayed_export.to_excel(writer, sheet_name="課題8_遅延明細", index=False)
+    print(f"Excel 出力しました: {EXCEL_OUTPUT_PATH.resolve()}")
+except ImportError:
+    print("openpyxl が未インストールです。次を実行してください: pip install openpyxl")
+    raise
 
 # --- gspread: Colab ではユーザ認証後に default クレデンシャルで開く ---
 try:

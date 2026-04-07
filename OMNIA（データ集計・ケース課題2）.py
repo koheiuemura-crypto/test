@@ -127,7 +127,6 @@ merged = orders_m.merge(df_delivery, on="order_no", how="left")
 merged = merged.merge(df_driver, on="order_no", how="left")
 merged.head()
 
-!ls
 # %% [markdown]
 # # 課題 4: データをフィルターして抽出する
 
@@ -162,7 +161,6 @@ df_shape.head()
 
 # %% [markdown]
 # # 課題 6: for文を使ってループ処理をする
-
 # %%
 # 日付型に変換したいカラムのリストを指定（存在するものだけ処理）
 date_cols = [
@@ -185,19 +183,204 @@ for col in date_cols:
 df_loop.dtypes.loc[[c for c in date_cols if c in df_loop.columns]]
 
 # %% [markdown]
-# # 課題 9: スプレッドシートへのデータ抽出
+# # 課題 7: 遅延している注文の割合を集計する
+# 要件: `latest_delivery_date` より配達完了（`delivery_date`）が遅れた注文を「遅延」とし、**承認日（approve_date）ごと**に遅延率を集計する。
 
 # %%
-# 必要なライブラリは pandas で十分（CSVで出力し、Google スプレッドシートに「ファイルを開く」で取り込み可能）
-export_path = DATA_STORAGE / "課題2_export_for_spreadsheet.csv"
+# 注文単位（マージで order_no が重複した場合は先頭行を採用）
+df_orders_unique = df_loop.drop_duplicates(subset=["order_no"], keep="first").copy()
+
+_delay_required = ["approve_date", "delivery_date", "latest_delivery_date"]
+df_delay_base = df_orders_unique.dropna(subset=_delay_required).copy()
+
+# 遅延: 配達完了が納期（最遅配達予定）を過ぎている（同日同刻は遅延に含めない）
+df_delay_base["is_delayed"] = df_delay_base["delivery_date"] > df_delay_base["latest_delivery_date"]
+df_delay_base["approve_date_day"] = df_delay_base["approve_date"].dt.normalize()
+
+df_delay_daily = (
+    df_delay_base.groupby("approve_date_day", dropna=False)
+    .agg(n_orders=("order_no", "count"), n_delayed=("is_delayed", "sum"))
+    .assign(delay_rate=lambda d: (d["n_delayed"] / d["n_orders"]).round(4))
+    .reset_index()
+    .rename(columns={"approve_date_day": "承認日"})
+)
+
+print("【課題7】承認日別 遅延率（delay_rate = n_delayed / n_orders）")
+print(df_delay_daily.to_string(index=False))
+print(f"遅延注文数（全体）: {df_delay_base['is_delayed'].sum()} / {len(df_delay_base)}")
+
+# %% [markdown]
+# # 課題 8: 遅延の要因分析
+# 遅延注文に限定し、各工程の所要時間（時間）を算出して要約する。ボトルネックは「最も時間が長かった工程」を注文ごとに特定し件数集計する。
+
+# %%
+
+
+def _stage_hours(from_s: pd.Series, to_s: pd.Series) -> pd.Series:
+    return (to_s - from_s).dt.total_seconds() / 3600.0
+
+
+df_delayed = df_delay_base[df_delay_base["is_delayed"]].copy()
+
+_stage_defs = [
+    ("h_承認〜受付", "approve_date", "accept_date"),
+    ("h_受付〜ピックアップ", "accept_date", "pickup_date"),
+    ("h_ピックアップ〜通過", "pickup_date", "pass_date"),
+    ("h_通過〜配達完了", "pass_date", "delivery_date"),
+]
+if "shop_arrival_at" in df_delayed.columns:
+    _stage_defs.insert(0, ("h_店舗到着〜受付", "shop_arrival_at", "accept_date"))
+
+stage_col_names: list[str] = []
+for col_name, c_from, c_to in _stage_defs:
+    if c_from in df_delayed.columns and c_to in df_delayed.columns:
+        df_delayed[col_name] = _stage_hours(df_delayed[c_from], df_delayed[c_to])
+        stage_col_names.append(col_name)
+
+# 工程別の集計（遅延注文のみ）
+_rows = []
+for c in stage_col_names:
+    s = df_delayed[c].dropna()
+    if s.empty:
+        continue
+    label = c.replace("h_", "").replace("_", "〜")
+    _rows.append(
+        {
+            "工程": label,
+            "平均_h": round(float(s.mean()), 3),
+            "中央値_h": round(float(s.median()), 3),
+            "p90_h": round(float(s.quantile(0.9)), 3),
+            "負の値件数": int((s < 0).sum()),
+            "件数": int(s.shape[0]),
+        }
+    )
+df_delay_stage_summary = pd.DataFrame(_rows)
+
+# 注文ごとのボトルネック（数値が最大の工程）
+if stage_col_names and not df_delayed.empty:
+    _stage_only = df_delayed[stage_col_names]
+    df_delayed["bottleneck_stage"] = _stage_only.idxmax(axis=1, skipna=True)
+    _label_map = {c: c.replace("h_", "").replace("_", "〜") for c in stage_col_names}
+    df_delayed["bottleneck_stage_label"] = df_delayed["bottleneck_stage"].map(_label_map)
+    df_delay_bottleneck = (
+        df_delayed["bottleneck_stage_label"].dropna().value_counts().rename_axis("工程").reset_index(name="件数")
+    )
+else:
+    df_delayed["bottleneck_stage"] = pd.NA
+    df_delayed["bottleneck_stage_label"] = pd.NA
+    df_delay_bottleneck = pd.DataFrame(columns=["工程", "件数"])
+
+print("【課題8】遅延注文の工程別 所要時間（時間）")
+print(df_delay_stage_summary.to_string(index=False))
+print()
+print("【課題8】ボトルネックとなった工程の件数（遅延注文）")
+if not df_delay_bottleneck.empty:
+    print(df_delay_bottleneck.to_string(index=False))
+else:
+    print("（遅延注文が0件、または工程列が算出できません）")
+
+# スプレッドシート・CSV用に主要列だけ残した遅延注文明細
+_detail_cols = (
+    [
+        "order_no",
+        "is_delayed",
+        "approve_date",
+        "latest_delivery_date",
+        "delivery_date",
+        "bottleneck_stage",
+        "bottleneck_stage_label",
+    ]
+    + stage_col_names
+)
+_detail_cols = [c for c in _detail_cols if c in df_delayed.columns]
+df_delayed_export = df_delayed[_detail_cols].copy()
+
+# %% [markdown]
+# # 課題 9: スプレッドシートへのデータ抽出
+# 課題7・8の集計をスプレッドシート「Update」に書き込む（gspread）。併せて `output` フォルダに CSV も保存する。
+# シート: https://docs.google.com/spreadsheets/d/1Mw4zn8QdCor0ALa5u5x_jGbN9HoBVhWVR6Y5_lGeCZk/edit?gid=270722600#gid=270722600
+
+# %%
+SPREADSHEET_ID = "1Mw4zn8QdCor0ALa5u5x_jGbN9HoBVhWVR6Y5_lGeCZk"
+WORKSHEET_TITLE = "Update"
+
+if "__file__" in globals():
+    _SCRIPT_ROOT = Path(__file__).resolve().parent
+else:
+    _SCRIPT_ROOT = Path.cwd()
+OUTPUT_DIR = _SCRIPT_ROOT / "output"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _df_to_sheet_matrix(title: str, df: pd.DataFrame) -> list[list]:
+    """1ブロック分を A1 から縦に並べる用の行列（先頭に見出し行）。"""
+    out: list[list] = [[title], list(df.columns.astype(str))]
+    for _, row in df.iterrows():
+        out.append(["" if pd.isna(v) else v for v in row.tolist()])
+    return out
+
+
+def build_update_sheet_values() -> list[list]:
+    """Update シート用の単一矩形データ（課題7→8を縦に連結）。"""
+    blocks: list[list] = []
+    blocks.extend(_df_to_sheet_matrix("【課題7】承認日別 遅延率", df_delay_daily))
+    blocks.append([])
+    blocks.extend(_df_to_sheet_matrix("【課題8】工程別集計（遅延注文）", df_delay_stage_summary))
+    blocks.append([])
+    blocks.extend(_df_to_sheet_matrix("【課題8】ボトルネック件数", df_delay_bottleneck))
+    blocks.append([])
+    blocks.extend(_df_to_sheet_matrix("【課題8】遅延注文明細", df_delayed_export))
+    return blocks
+
+
+# --- CSV（output フォルダ）---
+export_path = OUTPUT_DIR / "課題2_export_for_spreadsheet.csv"
 df_loop.to_csv(export_path, index=False, encoding="utf-8-sig")
 print(f"出力しました: {export_path}")
-print("Google スプレッドシートでは「ファイル」→「インポート」→この CSV を指定してください。")
 
-# gspread で直接書き込む場合は認証設定が必要です（講義の手順に従ってください）
-# import gspread
-# from google.colab import auth
-# auth.authenticate_user()
+export_path_delay = OUTPUT_DIR / "課題7_遅延率_日次.csv"
+df_delay_daily.to_csv(export_path_delay, index=False, encoding="utf-8-sig")
+print(f"出力しました: {export_path_delay}")
+
+export_path_stages = OUTPUT_DIR / "課題8_遅延要因_工程集計.csv"
+df_delay_stage_summary.to_csv(export_path_stages, index=False, encoding="utf-8-sig")
+print(f"出力しました: {export_path_stages}")
+
+export_path_delayed_detail = OUTPUT_DIR / "課題8_遅延注文明細.csv"
+df_delayed_export.to_csv(export_path_delayed_detail, index=False, encoding="utf-8-sig")
+print(f"出力しました: {export_path_delayed_detail}")
+
+# --- gspread（Google Colab 想定: ユーザー認証後に実行）---
+try:
+    import gspread
+    from google.auth import default as google_auth_default
+
+    if "google.colab" in sys.modules:
+        from google.colab import auth as colab_auth
+
+        colab_auth.authenticate_user()
+        _creds, _ = google_auth_default()
+        _gc = gspread.authorize(_creds)
+        _sh = _gc.open_by_key(SPREADSHEET_ID)
+        try:
+            _ws = _sh.worksheet(WORKSHEET_TITLE)
+        except gspread.WorksheetNotFound:
+            _ws = _sh.add_worksheet(title=WORKSHEET_TITLE, rows=3000, cols=30)
+
+        _matrix = build_update_sheet_values()
+        _ws.clear()
+        try:
+            _ws.update("A1", _matrix, value_input_option="USER_ENTERED")
+        except TypeError:
+            _ws.update(_matrix, range_name="A1", value_input_option="USER_ENTERED")
+        print(f"gspread: スプレッドシート「{WORKSHEET_TITLE}」を更新しました（ID={SPREADSHEET_ID}）")
+    else:
+        print(
+            "gspread スキップ: google.colab 外ではサービスアカウント等の別認証が必要です。"
+            "CSV を手動インポートするか、Colab で本セルを実行してください。"
+        )
+except ImportError:
+    print("gspread / google-auth が未インストールのためスキップしました。pip install gspread google-auth を実行してください。")
 
 # %% [markdown]
 # ## 追加: データ集計・DataStorage を使った簡易分析

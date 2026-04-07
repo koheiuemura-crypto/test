@@ -7,51 +7,59 @@ OMNIA（データ集計・ケース課題2）
 
 # %%
 # ライブラリのインポート
+import os
+import sys
 import pandas as pd
 from pathlib import Path
 from google.colab import drive
 
+# driveをマウント
 drive.mount("/content/drive")
 
-
 # %%
+# ==========================================
+# 2. 【参考】自動判別ロジック（環境をまたぐ場合に以下を有効化）
+# ==========================================
+"""
 def resolve_data_storage() -> Path:
-    """データ集計・DataStorage フォルダを特定（Colab / ローカル）。"""
-    candidates: list[Path] = []
-
-    # スクリプトと同じディレクトリ直下（.py 実行時）
-    try:
-        here = Path(__file__).resolve().parent
-        candidates.append(here / "データ集計・DataStorage")
-    except NameError:
-        pass  # ノートブック等で __file__ がない場合
-
-    # Google Colab（Drive マウント後）
-    drive_my = Path("/content/drive/MyDrive")
-    if drive_my.is_dir():
-        candidates.append(drive_my / "OMNIA/考える/アナリティクス/データ集計・DataStorage")
-        candidates.append(drive_my / "OMNIA/アナリティクス/データ集計・DataStorage")
-
+    # 探索候補のリスト
+    candidates = []
+    
+    # スクリプトの場所基準
+    if "__file__" in globals():
+        candidates.append(Path(__file__).resolve().parent / "データ集計・DataStorage")
+    
+    # Colab環境基準
+    if "google.colab" in sys.modules:
+        drive_base = Path("/content/drive/MyDrive")
+        candidates.append(drive_base / "OMNIA/考える/アナリティクス/データ集計・DataStorage")
+        candidates.append(drive_base / "OMNIA/アナリティクス/データ集計・DataStorage")
+    
     # カレントディレクトリ基準
-    candidates.append(Path("データ集計・DataStorage"))
     candidates.append(Path.cwd() / "データ集計・DataStorage")
 
-    for path in candidates:
-        if path.is_dir():
-            return path.resolve()
+    for p in candidates:
+        if p.resolve().is_dir():
+            return p.resolve()
+            
+    raise FileNotFoundError("指定のディレクトリが見つかりません。")
 
-    tried = "\n".join(f"  - {p}" for p in candidates)
-    raise FileNotFoundError(f"データ集計・DataStorage が見つかりません。試したパス:\n{tried}")
-
-
-DATA_STORAGE = resolve_data_storage()
+# 使用する場合:
+# DATA_STORAGE = resolve_data_storage()
+"""
 
 # %% [markdown]
 # # 課題 1: 複数の日付のデータを一つのデータフレームにまとめる
 
+#　解析用のデータのpath
+DATA_STORAGE = Path("/content/drive/MyDrive/OMNIA/考える/アナリティクス/データ集計・DataStorage")
+
 # %%
 # CSVファイルのパスを指定
 order_dir = DATA_STORAGE / "order_data"
+order_dir
+
+# globはディレクトリ内のファイルを検索するための関数で、リストを返すのではなくジェネレータを返す
 paths_orders = sorted(order_dir.glob("order_data_2022_12_*.csv"))
 
 # 各CSVファイルを読み込み、リストに格納

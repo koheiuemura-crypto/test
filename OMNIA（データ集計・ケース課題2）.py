@@ -2,7 +2,6 @@
 """
 OMNIA（データ集計・ケース課題2）
 ================================
-元ノート: OMNIA（データ集計・ケース課題2）.ipynb から複製・回答用スクリプト。
 
 利用データ（すべて「データ集計・DataStorage」配下）:
     - order_data/ … 注文マスタ（order_no をキーに他テーブルと結合）
@@ -117,7 +116,7 @@ dfs_orders = [pd.read_csv(p) for p in paths_orders]
 df_orders = pd.concat(dfs_orders, ignore_index=True)
 
 # head(): 先頭5行だけ表示（Jupyter 風の確認用。スクリプト実行時は標準出力には出ない場合あり）。
-df_orders.head()
+df_orders.head(5)
 
 # %% [markdown]
 # # 課題 2: データの重複行を削除
@@ -128,8 +127,10 @@ df_orders.head()
 # 課題1の結果 df_orders をそのまま使う（再読込しない＝一貫性を保つ）。
 # %%
 df_dedup = df_orders.copy()
+df_dedup = df_orders.copy()
 
 # 削除前の行数を記録（レポート用）。
+n_before = len(df_dedup)
 n_before = len(df_dedup)
 # duplicated(): 2行目以降の重複を True とするマスク。keep 指定なしなら先頭を残す既定。
 dup_mask = df_dedup.duplicated()
@@ -165,12 +166,28 @@ print("行数:", len(df_orders_rowcount))
 # %%
 orders_m = df_orders.copy()
 
+"""
+order_no	time_type	order_state	receive_type	approve_date	created_at	driver_id	delivery_date	latest_delivery_date	accept_date	pickup_date	pass_date	local_area_flag
+0	BY534M	1	4	2	2022/12/1 0:00	2022/12/1 0:00	5606.0	2022/12/1 0:53	2022/12/1 1:23	2022/12/1 0:07	2022/12/1 0:23	2022/12/1 0:44	0
+1	GV384O	1	4	2	2022/12/1 0:12	2022/12/1 0:03	76304.0	2022/12/1 0:36	2022/12/1 1:06	2022/12/1 0:14	2022/12/1 0:26	2022/12/1 0:48	0
+2	WK460E	1	4	2	2022/12/1 0:06	2022/12/1 0:05	17544.0	2022/12/1 0:48	2022/12/1 1:18	2022/12/1 0:13	2022/12/1 0:17	2022/12/1 0:32	0
+"""
+
 deliv_dir = DATA_STORAGE / "delivery_status_history_data"
 paths_deliv = sorted(deliv_dir.glob("delivery_status_history_data_2022_12_*.csv"))
 if not paths_deliv:
     raise FileNotFoundError(f"delivery_status_history の CSV が見つかりません: {deliv_dir}")
 dfs_deliv = [pd.read_csv(p) for p in paths_deliv]
 df_delivery = pd.concat(dfs_deliv, ignore_index=True)
+
+"""
+	created_date	order_no
+0	1669820403	NC509T
+1	1669820403	QL837B
+2	1669820424	JU264A
+3	1669820452	AQ492G
+4	1669820522	KV408T
+"""
 
 drv_dir = DATA_STORAGE / "driver_shop_arrival_history_data"
 paths_drv = sorted(drv_dir.glob("driver_shop_arrival_history_data_2022_12_*.csv"))
@@ -179,6 +196,13 @@ if not paths_drv:
 dfs_drv = [pd.read_csv(p) for p in paths_drv]
 df_driver = pd.concat(dfs_drv, ignore_index=True)
 
+"""
+driver_id	order_no	shop_arrival_at	created_at
+0	38814	NC509T	2022/12/1 0:00	2022/12/1 0:00
+1	21510	PV768H	2022/12/1 0:00	2022/12/1 0:00
+2	24607	PC248Y	2022/12/1 0:01	2022/12/1 0:01
+"""
+
 # merge 1回目: 注文 × 配達ステータス履歴。
 # merge 2回目: その結果 × 店舗到着履歴。
 # 両方に created_at があるため、pandas は自動で created_at_x / created_at_y にリネームする（衝突回避）。
@@ -186,9 +210,15 @@ merged = orders_m.merge(df_delivery, on="order_no", how="left")
 merged = merged.merge(df_driver, on="order_no", how="left")
 merged.head()
 
+"""
+order_no	time_type	order_state	receive_type	approve_date	created_at_x	driver_id_x	delivery_date	latest_delivery_date	accept_date	pickup_date	pass_date	local_area_flag	created_date	driver_id_y	shop_arrival_at	created_at_y
+0	BY534M	1	4	2	2022/12/1 0:00	2022/12/1 0:00	5606.0	2022/12/1 0:53	2022/12/1 1:23	2022/12/1 0:07	2022/12/1 0:23	2022/12/1 0:44	0	1.669821e+09	5606.0	2022/12/1 0:16	2022/12/1 0:16
+1	GV384O	1	4	2	2022/12/1 0:12	2022/12/1 0:03	76304.0	2022/12/1 0:36	2022/12/1 1:06	2022/12/1 0:14	2022/12/1 0:26	2022/12/1 0:48	0	1.669821e+09	76304.0	2022/12/1 0:25	2022/12/1 0:25
+2	WK460E	1	4	2	2022/12/1 0:06	2022/12/1 0:05	17544.0	2022/12/1 0:48	2022/12/1 1:18	2022/12/1 0:13	2022/12/1 0:17	2022/12/1 0:32	0	1.669821e+09	17544.0	2022/12/1 0:15	2022/12/1 0:15
+"""
+
 # %% [markdown]
 # # 課題 4: データをフィルターして抽出する
-
 # =============================================================================
 # 課題 4: 分析対象に絞り込む（ビジネスルールは教材に準拠）
 # =============================================================================
@@ -199,28 +229,28 @@ merged.head()
 filtered = merged[(merged["order_state"] == 4) & (merged["receive_type"] == 2)].copy()
 print("マージ後:", len(merged), "行 → フィルター後:", len(filtered), "行")
 filtered.head()
-
+"""
+order_no	time_type	order_state	receive_type	approve_date	created_at_x	driver_id_x	delivery_date	latest_delivery_date	accept_date	pickup_date	pass_date	local_area_flag	created_date	driver_id_y	shop_arrival_at	created_at_y
+0	BY534M	1	4	2	2022/12/1 0:00	2022/12/1 0:00	5606.0	2022/12/1 0:53	2022/12/1 1:23	2022/12/1 0:07	2022/12/1 0:23	2022/12/1 0:44	0	1.669821e+09	5606.0	2022/12/1 0:16	2022/12/1 0:16
+1	GV384O	1	4	2	2022/12/1 0:12	2022/12/1 0:03	76304.0	2022/12/1 0:36	2022/12/1 1:06	2022/12/1 0:14	2022/12/1 0:26	2022/12/1 0:48	0	1.669821e+09	76304.0	2022/12/1 0:25	2022/12/1 0:25
+2	WK460E	1	4	2	2022/12/1 0:06	2022/12/1 0:05	17544.0	2022/12/1 0:48	2022/12/1 1:18	2022/12/1 0:13	2022/12/1 0:17	2022/12/1 0:32	0	1.669821e+09	17544.0	2022/12/1 0:15	2022/12/1 0:15
+"""
 # %% [markdown]
 # # 課題 5: データを整形する
-
 # =============================================================================
 # 課題 5: UNIX 秒・カラム名の整理など、後続処理向けに整形する
 # =============================================================================
 # %%
 
-
 def unix_to_datetime(series: pd.Series) -> pd.Series:
     """
     UNIX エポックからの秒を pandas の日時型に変換する。
-
     Args:
         series: 数値（秒）。文字列が混じる場合は errors='coerce' で NaT に落とす。
-
     Returns:
         dtype が datetime64[ns] に近い Series。
     """
     return pd.to_datetime(series, unit="s", errors="coerce")
-
 
 df_shape = filtered.copy()
 # delivery 側の created_date は CSV 上数値（UNIX 秒）の想定。
@@ -232,7 +262,14 @@ if "created_date" in df_shape.columns:
 if "created_at_x" in df_shape.columns:
     df_shape = df_shape.rename(columns={"created_at_x": "created_at"})
 
+
 df_shape.head()
+"""
+order_no	time_type	order_state	receive_type	approve_date	created_at	driver_id_x	delivery_date	latest_delivery_date	accept_date	pickup_date	pass_date	local_area_flag	created_date	driver_id_y	shop_arrival_at	created_at_y
+0	BY534M	1	4	2	2022/12/1 0:00	2022/12/1 0:00	5606.0	2022/12/1 0:53	2022/12/1 1:23	2022/12/1 0:07	2022/12/1 0:23	2022/12/1 0:44	0	2022-11-30 15:07:22	5606.0	2022/12/1 0:16	2022/12/1 0:16
+1	GV384O	1	4	2	2022/12/1 0:12	2022/12/1 0:03	76304.0	2022/12/1 0:36	2022/12/1 1:06	2022/12/1 0:14	2022/12/1 0:26	2022/12/1 0:48	0	2022-11-30 15:13:01	76304.0	2022/12/1 0:25	2022/12/1 0:25
+2	WK460E	1	4	2	2022/12/1 0:06	2022/12/1 0:05	17544.0	2022/12/1 0:48	2022/12/1 1:18	2022/12/1 0:13	2022/12/1 0:17	2022/12/1 0:32	0	2022-11-30 15:12:56	17544.0	2022/12/1 0:15	2022/12/1 0:15
+"""
 
 # %% [markdown]
 # # 課題 6: for文を使ってループ処理をする
@@ -254,6 +291,15 @@ date_cols = [
     "created_at_y",  # 2回目 merge で付いたドライバ側 created_at
 ]
 
+df_shape[date_cols].head()
+"""
+	approve_date	created_at	delivery_date	latest_delivery_date	accept_date	pickup_date	pass_date	shop_arrival_at	created_at_y
+0	2022/12/1 0:00	2022/12/1 0:00	2022/12/1 0:53	2022/12/1 1:23	2022/12/1 0:07	2022/12/1 0:23	2022/12/1 0:44	2022/12/1 0:16	2022/12/1 0:16
+1	2022/12/1 0:12	2022/12/1 0:03	2022/12/1 0:36	2022/12/1 1:06	2022/12/1 0:14	2022/12/1 0:26	2022/12/1 0:48	2022/12/1 0:25	2022/12/1 0:25
+2	2022/12/1 0:06	2022/12/1 0:05	2022/12/1 0:48	2022/12/1 1:18	2022/12/1 0:13	2022/12/1 0:17	2022/12/1 0:32	2022/12/1 0:15	2022/12/1 0:15
+"""
+
+# for文で回してdatetime64に変換する
 df_loop = df_shape.copy()
 for col in date_cols:
     if col in df_loop.columns:
@@ -261,6 +307,17 @@ for col in date_cols:
 
 # 変換結果の dtype だけ抜き出して確認（デバッグ・レポート用）。
 df_loop.dtypes.loc[[c for c in date_cols if c in df_loop.columns]]
+"""
+approve_date	datetime64[ns]
+created_at	datetime64[ns]
+delivery_date	datetime64[ns]
+latest_delivery_date	datetime64[ns]
+accept_date	datetime64[ns]
+pickup_date	datetime64[ns]
+pass_date	datetime64[ns]
+shop_arrival_at	datetime64[ns]
+created_at_y	datetime64[ns]
+"""
 
 # %% [markdown]
 # # 課題 7: 遅延している注文の割合を集計する
@@ -398,7 +455,7 @@ df_delayed_export = df_delayed[_detail_cols].copy()
 # %% [markdown]
 # # 課題 9: スプレッドシートへのデータ抽出
 # 課題7・8の集計をスプレッドシート「Update」に書き込む（gspread）。併せて `output` フォルダに Excel（.xlsx）へ保存する。
-# シート: https://docs.google.com/spreadsheets/d/1CXJL7cXnyEzmL1JHZJtau-AZ6SS4W0SH/edit?gid=1132557014#gid=1132557014
+# シート: https://docs.google.com/spreadsheets/d/1H9xF17WzjOqqkgkEmxnKxwOxKBPBJjrDxRMseNSYq70/edit?gid=1132557014#gid=1132557014
 # 書き込み権限ないのでコピーしておきましょう
 
 # =============================================================================
@@ -409,17 +466,21 @@ df_delayed_export = df_delayed[_detail_cols].copy()
 # WORKSHEET_TITLE:
 #   タブ名（存在しなければ空のワークシートを追加する処理あり）。
 # %%
-SPREADSHEET_ID = "1CXJL7cXnyEzmL1JHZJtau-AZ6SS4W0SH"
+# %%
+# =============================================================================
+# 課題 9: ローカルに Excel 保存 +（Colab なら）スプレッドシート更新
+# =============================================================================
+SPREADSHEET_ID = "1H9xF17WzjOqqkgkEmxnKxwOxKBPBJjrDxRMseNSYq70"
 WORKSHEET_TITLE = "Update"
 
-# スクリプトとして実行すると __file__ がある。対話的に exec だけすると無いので cwd にフォールバック。
-# output 配下に「OMNIA（データ集計・ケース課題2）.xlsx」へ集約出力する
-# （例: G:\...\アナリティクス\output\OMNIA（データ集計・ケース課題2）.xlsx）
+# 1つ前のディレクトリの output フォルダを起点にする
 if "__file__" in globals():
-    _SCRIPT_ROOT = Path(__file__).resolve().parent
+    # ファイルから見て 親(アナリティクス) -> 親(プロジェクトルート) / output
+    OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
 else:
-    _SCRIPT_ROOT = Path.cwd()
-OUTPUT_DIR = _SCRIPT_ROOT / "output"
+    # 対話モード（Colab等）ではカレントディレクトリの1つ上
+    OUTPUT_DIR = Path.cwd().parent / "output"
+
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 EXCEL_OUTPUT_PATH = OUTPUT_DIR / "OMNIA（データ集計・ケース課題2）.xlsx"
 
@@ -427,31 +488,25 @@ EXCEL_OUTPUT_PATH = OUTPUT_DIR / "OMNIA（データ集計・ケース課題2）.
 def _df_to_sheet_matrix(title: str, df: pd.DataFrame) -> list[list]:
     """
     Google スプレッドシート API に渡す「矩形の値」のリストを作る。
-
-    構成:
-        1行目: ブロック見出し（1セル相当だが1行リスト）
-        2行目: 列名
-        以降: 各行の値（NaN は空文字にして API エラーを避ける）
-
-    Args:
-        title: ブロックのタイトル文字列。
-        df: 書き込む表。
-
-    Returns:
-        list[list]: 行ごとのセル値のリスト（2次元配列）。
+    Timestamp型の値を文字列に変換し、JSONシリアライズエラーを防止する。
     """
     out: list[list] = [[title], list(df.columns.astype(str))]
     for _, row in df.iterrows():
-        out.append(["" if pd.isna(v) else v for v in row.tolist()])
+        line = []
+        for v in row.tolist():
+            if pd.isna(v):
+                line.append("")
+            # Timestamp型や特殊なオブジェクトを文字列に変換
+            elif isinstance(v, (pd.Timestamp, pd.Timedelta)) or hasattr(v, "isoformat"):
+                line.append(str(v))
+            else:
+                line.append(v)
+        out.append(line)
     return out
 
 
 def build_update_sheet_values() -> list[list]:
-    """
-    「Update」シート1枚に、課題7→8の結果を上から順に縦連結した行列を返す。
-
-    空行 list を挟むのは、ブロック間を目視で分かりやすくするため。
-    """
+    """「Update」シート用に各課題の結果を縦に連結する。"""
     blocks: list[list] = []
     blocks.extend(_df_to_sheet_matrix("【課題7】承認日別 遅延率", df_delay_daily))
     blocks.append([])
@@ -463,8 +518,7 @@ def build_update_sheet_values() -> list[list]:
     return blocks
 
 
-# --- Excel 出力（1ファイル・複数シート。engine=openpyxl が必要: pip install openpyxl）---
-# シート名は Excel の 31 文字制限内に収める。
+# --- Excel 出力（1ファイル・複数シート） ---
 try:
     with pd.ExcelWriter(EXCEL_OUTPUT_PATH, engine="openpyxl") as writer:
         df_loop.to_excel(writer, sheet_name="課題2_整形データ", index=False)
@@ -474,10 +528,10 @@ try:
         df_delayed_export.to_excel(writer, sheet_name="課題8_遅延明細", index=False)
     print(f"Excel 出力しました: {EXCEL_OUTPUT_PATH.resolve()}")
 except ImportError:
-    print("openpyxl が未インストールです。次を実行してください: pip install openpyxl")
+    print("openpyxl が未インストールです。pip install openpyxl を実行してください。")
     raise
 
-# --- gspread: Colab ではユーザ認証後に default クレデンシャルで開く ---
+# --- gspread 更新処理 ---
 try:
     import gspread
     from google.auth import default as google_auth_default
@@ -488,27 +542,30 @@ try:
         colab_auth.authenticate_user()
         _creds, _ = google_auth_default()
         _gc = gspread.authorize(_creds)
+        
+        # スプレッドシートを開く（IDが正しいか、形式がスプレッドシートか確認済み前提）
         _sh = _gc.open_by_key(SPREADSHEET_ID)
+        
         try:
             _ws = _sh.worksheet(WORKSHEET_TITLE)
         except gspread.WorksheetNotFound:
-            _ws = _sh.add_worksheet(title=WORKSHEET_TITLE, rows=3000, cols=30)
+            _ws = _sh.add_worksheet(title=WORKSHEET_TITLE, rows=5000, cols=30)
 
         _matrix = build_update_sheet_values()
         _ws.clear()
-        # gspread のバージョンで update の引数順が異なるためフォールバック。
+        
+        # 値の書き込み（Timestampを文字列化したマトリックスを使用）
         try:
-            _ws.update("A1", _matrix, value_input_option="USER_ENTERED")
+            _ws.update(values=_matrix, range_name="A1", value_input_option="USER_ENTERED")
         except TypeError:
-            _ws.update(_matrix, range_name="A1", value_input_option="USER_ENTERED")
-        print(f"gspread: スプレッドシート「{WORKSHEET_TITLE}」を更新しました（ID={SPREADSHEET_ID}）")
+            # 古いバージョンのgspread用のフォールバック
+            _ws.update("A1", _matrix, value_input_option="USER_ENTERED")
+            
+        print(f"gspread: スプレッドシート「{WORKSHEET_TITLE}」を更新しました。")
     else:
-        print(
-            "gspread スキップ: google.colab 外ではサービスアカウント等の別認証が必要です。"
-            "CSV を手動インポートするか、Colab で本セルを実行してください。"
-        )
-except ImportError:
-    print("gspread / google-auth が未インストールのためスキップしました。pip install gspread google-auth を実行してください。")
+        print("gspread スキップ: Colab 環境ではありません。")
+except Exception as e:
+    print(f"gspread 更新中にエラーが発生しました: {e}")
 
 # %% [markdown]
 # ## 追加: データ集計・DataStorage を使った簡易分析

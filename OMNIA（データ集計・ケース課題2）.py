@@ -119,6 +119,7 @@ merged = orders_m.merge(df_delivery, on="order_no", how="left")
 merged = merged.merge(df_driver, on="order_no", how="left")
 merged.head()
 
+!ls
 # %% [markdown]
 # # 課題 4: データをフィルターして抽出する
 

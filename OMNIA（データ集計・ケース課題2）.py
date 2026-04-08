@@ -429,40 +429,54 @@ def _stage_hours(from_s: pd.Series, to_s: pd.Series) -> pd.Series:
 
 df_delayed = df_delay_base[df_delay_base["is_delayed"]].copy()
 
-# (新しい列名, 開始列, 終了列) のタプルリスト。後から insert で順序を調整可能。
+# 1. 工程定義を「承認」から「完了」まで完全に網羅
 _stage_defs = [
-    ("h_承認〜受付", "approve_date", "accept_date"),
-    ("h_受付〜ピックアップ", "accept_date", "pickup_date"),
-    ("h_ピックアップ〜配達完了", "pickup_date", "pass_date"), # pass_dateは配達完了時間
+    ("h_受諾待ち（承認〜受諾）", "approve_date", "accept_date"),     # 追加：マッチング時間
+    ("h_クルー移動（受諾〜到着）", "accept_date", "shop_arrival_at"),
+    ("h_店舗待機（到着〜ピックアップ）", "shop_arrival_at", "pickup_date"),
+    ("h_最終配送（ピックアップ〜完了）", "pickup_date", "pass_date"),
 ]
-# 受諾のあと店舗へ向かい到着するまでの時間（通常は正の値になりやすい）
-if "shop_arrival_at" in df_delayed.columns:
-    _stage_defs.insert(0, ("h_受諾〜店舗到着", "accept_date", "shop_arrival_at"))
 
-stage_col_names: list[str] = []
+# 2. 工程計算のループ（負の値を NaN にして統計を汚さない）
+stage_col_names = []
 for col_name, c_from, c_to in _stage_defs:
     if c_from in df_delayed.columns and c_to in df_delayed.columns:
-        df_delayed[col_name] = _stage_hours(df_delayed[c_from], df_delayed[c_to])
+        diff_hours = (df_delayed[c_to] - df_delayed[c_from]).dt.total_seconds() / 3600.0
+        
+        # 負の値（逆転データ）は実態を表さないため NaN に置換
+        df_delayed[col_name] = diff_hours.where(diff_hours >= 0)
         stage_col_names.append(col_name)
 
-# 工程ごとに記述統計を1行ずつ dict で溜め、最後に DataFrame 化する。
+# 3. ボトルネック判定（修正後の全工程で比較）
+if stage_col_names and not df_delayed.empty:
+    _stage_only = df_delayed[stage_col_names]
+    # 行ごとに最大値を持つ列名を取得
+    df_delayed["bottleneck_stage"] = _stage_only.idxmax(axis=1, skipna=True)
+    _label_map = {c: c.replace("h_", "") for c in stage_col_names}
+    df_delayed["bottleneck_stage_label"] = df_delayed["bottleneck_stage"].map(_label_map)
+
+# 4. サマリー集計（負の値のカウントロジック含む）
 _rows = []
 for c in stage_col_names:
     s = df_delayed[c].dropna()
-    if s.empty:
-        continue
-    label = c.replace("h_", "").replace("_", "〜")
-    _rows.append(
-        {
-            "工程": label,
-            "平均_h": round(float(s.mean()), 3),
-            "中央値_h": round(float(s.median()), 3),
-            "p90_h": round(float(s.quantile(0.9)), 3),
-            "負の値件数": int((s < 0).sum()),
-            "件数": int(s.shape[0]),
-        }
-    )
+    if s.empty: continue
+    
+    # 元の計算で負の値だった数を正確に取得
+    idx = stage_col_names.index(c)
+    raw_diff = (df_delayed[_stage_defs[idx][2]] - df_delayed[_stage_defs[idx][1]]).dt.total_seconds()
+    neg_count = int((raw_diff < 0).sum())
+
+    _rows.append({
+        "工程": c.replace("h_", ""),
+        "平均_h": round(float(s.mean()), 3),
+        "中央値_h": round(float(s.median()), 3),
+        "p90_h": round(float(s.quantile(0.9)), 3),
+        "負の値件数": neg_count,
+        "有効件数": int(s.shape[0]),
+    })
+
 df_delay_stage_summary = pd.DataFrame(_rows)
+
 
 # idxmax(axis=1): 行ごとに最大値を取る列名（工程列）を返す = その注文のボトルネック候補。
 if stage_col_names and not df_delayed.empty:

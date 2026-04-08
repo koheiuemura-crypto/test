@@ -234,44 +234,12 @@ import pandas as pd
 from datetime import datetime, timedelta
 from pathlib import Path
 
-
-def resolve_join_orders_dir() -> Path:
-    """join_orders_2021_09_*.csv があるディレクトリを特定する（Colab / ローカル / CWD 差を吸収）。"""
-
-    def has_target_csv(d: Path) -> bool:
-        return d.is_dir() and any(d.glob("join_orders_2021_09_*.csv"))
-
-    candidates: list[Path] = []
-    try:
-        _here = Path(__file__).resolve().parent
-        candidates.append(_here / "データ集計・DataStorage/join_orders")
-    except NameError:
-        pass
-
-    drive = Path("/content/drive/MyDrive")
-    if drive.exists():
-        candidates.extend(
-            [
-                drive / "OMNIA/考える/アナリティクス/データ集計・DataStorage/join_orders",
-                drive / "OMNIA/アナリティクス/データ集計・DataStorage/join_orders",
-            ]
-        )
-
-    candidates.append(Path("データ集計・DataStorage/join_orders"))
-    candidates.append(Path.cwd() / "データ集計・DataStorage/join_orders")
-
-    for d in candidates:
-        if has_target_csv(d):
-            return d.resolve()
-
-    msg = "join_orders_2021_09_*.csv が見つかりません。次のいずれかにデータを置くか、パスを追加してください:\n"
-    msg += "\n".join(f"  - {d}" for d in candidates)
-    raise FileNotFoundError(msg)
-
 # %%
 # 問題3: 還元祭クーポン（対象注文を抽出し、注文ごとに付与額とコードを算出）
 
-join_dir = resolve_join_orders_dir()
+join_dir = Path("/content/drive/MyDrive/UEMURA_OMNIA_OUTPUT/OMNIA_アナリティクス/アナリティクス/データ集計・DataStorage/join_orders")
+output_dir = Path("/content/drive/MyDrive/UEMURA_OMNIA_OUTPUT/OMNIA_アナリティクス/アナリティクス/output")
+
 paths = sorted(join_dir.glob("join_orders_2021_09_*.csv"))
 df = pd.concat(
     [pd.read_csv(p, sep="\t", dtype={"order_no": str}) for p in paths],
@@ -307,7 +275,7 @@ df_f["discount_code"] = "DELI-HALF-" + df_f["order_no"].astype(str)
 out = df_f[["user_id", "discount_price", "discount_code"]].copy()
 out["user_id"] = pd.to_numeric(out["user_id"], errors="coerce").astype("Int64")
 
-out_csv = join_dir / "repay_festival_coupons.csv"
+out_csv = output_dir / "repay_festival_coupons.csv"
 out.to_csv(out_csv, index=False, encoding="utf-8-sig")
 print(f"出力: {out_csv}  行数: {len(out)}")
 out.head()
@@ -337,12 +305,9 @@ out.head()
 
 # %%
 # 問題4: エリア別「デイリー平均注文数」（ユーザーチーム＝ユーザー位置、クルーチーム＝店舗位置）
-# （resolve_join_orders_dir は上の「ヒント」セルで定義）
 
-join_dir = resolve_join_orders_dir()
-paths = sorted(join_dir.glob("join_orders_2021_09_*.csv"))
+
 df4 = pd.concat([pd.read_csv(p, sep="\t") for p in paths], ignore_index=True)
-
 df4["order_dt"] = pd.to_datetime(df4["order_date"])
 df4 = df4[(df4["order_dt"] >= "2021-09-25") & (df4["order_dt"] < "2021-09-29")].copy()
 df4["order_day"] = df4["order_dt"].dt.date
@@ -355,8 +320,8 @@ user_team_avg = u_daily.groupby("user_delivery_area_id")["n_orders"].mean().rese
 c_daily = df4.groupby(["shop_delivery_area_id", "order_day"]).size().reset_index(name="n_orders")
 crew_team_avg = c_daily.groupby("shop_delivery_area_id")["n_orders"].mean().reset_index(name="daily_avg_orders")
 
-user_team_avg.to_csv(join_dir / "daily_avg_orders_user_team.csv", index=False, encoding="utf-8-sig")
-crew_team_avg.to_csv(join_dir / "daily_avg_orders_crew_team.csv", index=False, encoding="utf-8-sig")
+user_team_avg.to_csv(output_dir / "daily_avg_orders_user_team.csv", index=False, encoding="utf-8-sig")
+crew_team_avg.to_csv(output_dir / "daily_avg_orders_crew_team.csv", index=False, encoding="utf-8-sig")
 
 user_team_avg.head(10), crew_team_avg.head(10)
 
@@ -364,3 +329,8 @@ user_team_avg.head(10), crew_team_avg.head(10)
 # 両チームの集計結果の行数・欠損の確認例
 print("ユーザーチーム（user_delivery_area_id）エリア数:", len(user_team_avg))
 print("クルーチーム（shop_delivery_area_id）エリア数:", len(crew_team_avg))
+
+"""
+ユーザーチーム（user_delivery_area_id）エリア数: 1245
+クルーチーム（shop_delivery_area_id）エリア数: 1092
+"""

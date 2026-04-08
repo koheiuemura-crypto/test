@@ -502,20 +502,69 @@ else:
     print("（遅延注文が0件、または工程列が算出できません）")
 
 # スプレッドシート・Excel 明細シートに載せる列を絞る（ファイルサイズと可読性のバランス）。
-_detail_cols = (
-    [
-        "order_no",
-        "is_delayed",
-        "approve_date",
-        "latest_delivery_date",
-        "delivery_date",
-        "bottleneck_stage",
-        "bottleneck_stage_label",
-    ]
-    + stage_col_names
-)
-_detail_cols = [c for c in _detail_cols if c in df_delayed.columns]
-df_delayed_export = df_delayed[_detail_cols].copy()
+# 1. 出力したい「生の日時列」と「計算した工程列」を整理
+# 1. 工程定義を「一本道」で定義（属性列を含めない）
+# =============================================================================
+# 課題 8: 修正版（出力用データフレームの構築）
+# =============================================================================
+
+# 1. 工程定義
+_stage_defs = [
+    ("h_受諾待ち（承認〜受諾）", "approve_date", "accept_date"),
+    ("h_クルー移動（受諾〜到着）", "accept_date", "shop_arrival_at"),
+    ("h_店舗待機（到着〜ピックアップ）", "shop_arrival_at", "pickup_date"),
+    ("h_最終配送（ピックアップ〜完了）", "pickup_date", "pass_date"),
+]
+
+df_delayed = df_delay_base[df_delay_base["is_delayed"]].copy()
+stage_col_names = []
+
+# 2. 工程時間の計算
+for col_name, c_from, c_to in _stage_defs:
+    if c_from in df_delayed.columns and c_to in df_delayed.columns:
+        # 確実に float 型で計算（単位：時間）
+        diff_hours = (df_delayed[c_to] - df_delayed[c_from]).dt.total_seconds() / 3600.0
+        # 負の値は NaN にし、型を float に固定
+        df_delayed[col_name] = diff_hours.where(diff_hours >= 0).astype(float)
+        stage_col_names.append(col_name)
+
+# 3. 整合性確認用の計算列（ここも float で計算）
+df_delayed["total_lead_time_h"] = (
+    (df_delayed["pass_date"] - df_delayed["approve_date"]).dt.total_seconds() / 3600.0
+).astype(float)
+
+df_delayed["delay_duration_h"] = (
+    (df_delayed["pass_date"] - df_delayed["latest_delivery_date"]).dt.total_seconds() / 3600.0
+).astype(float)
+
+# 4. 明細出力用のカラム構成
+_detail_cols = [
+    "order_no",
+    "is_delayed",
+    "time_type",
+    "approve_date",
+    "latest_delivery_date",
+    "delivery_date",
+    "pass_date",            # ★追加しました
+    "total_lead_time_h",
+    "delay_duration_h",
+    "bottleneck_stage_label"
+] + stage_col_names
+
+# 2. データの抽出と数値型の修正
+df_delayed_export = df_delayed.copy()
+
+# 数値として扱いたい列
+float_cols = ["total_lead_time_h", "delay_duration_h"] + stage_col_names
+
+for fc in float_cols:
+    if fc in df_delayed_export.columns:
+        # 確実に数値(float)に変換し、小数点3位で丸める
+        df_delayed_export[fc] = pd.to_numeric(df_delayed_export[fc], errors='coerce').astype(float).round(3)
+
+# 存在する列だけを最終的に抽出
+_final_cols = [c for c in _detail_cols if c in df_delayed_export.columns]
+df_delayed_export = df_delayed_export[_final_cols]
 
 # %% [markdown]
 # # 課題 9: スプレッドシートへのデータ抽出
@@ -538,6 +587,7 @@ df_delayed_export = df_delayed[_detail_cols].copy()
 # =============================================================================
 SPREADSHEET_ID = "1H9xF17WzjOqqkgkEmxnKxwOxKBPBJjrDxRMseNSYq70"
 WORKSHEET_TITLE = "Update"
+WORKSHEET_TITLE_DELAY_DETAIL = "Update_遅延注文詳細"
 WORKSHEET_TITLE_PRE_TASK8 = "Update_元データ"
 
 # 1つ前のディレクトリの output フォルダを起点にする
@@ -608,17 +658,20 @@ try:
         df_delay_daily.to_excel(writer, sheet_name="課題7_遅延率日次", index=False)
         df_delay_stage_summary.to_excel(writer, sheet_name="課題8_工程集計", index=False)
         df_delay_bottleneck.to_excel(writer, sheet_name="課題8_ボトルネック", index=False)
-        df_delayed_export.to_excel(writer, sheet_name="課題8_遅延明細", index=False)
+        df_delayed_export.to_excel(writer, sheet_name="課題8_遅延明細_修正", index=False) # ★別シート
         df_update_source_pre_task8.to_excel(writer, sheet_name="課題11_Update_元データ", index=False)
-    print(f"Excel 出力しました: {EXCEL_OUTPUT_PATH.resolve()}")
-except ImportError:
-    print("openpyxl が未インストールです。pip install openpyxl を実行してください。")
-    raise
+    print(f"Excel 出力完了: {EXCEL_OUTPUT_PATH.name}")
+except Exception as e:
+    print(f"Excel出力エラー: {e}")
 
+# --- gspread 更新処理 ---
 # --- gspread 更新処理 ---
 try:
     import gspread
     from google.auth import default as google_auth_default
+
+    # ★ 追加：新しいシート名の定義
+    WORKSHEET_TITLE_DELAY_DETAIL = "Update_遅延注文詳細"
 
     if "google.colab" in sys.modules:
         from google.colab import auth as colab_auth
@@ -627,9 +680,10 @@ try:
         _creds, _ = google_auth_default()
         _gc = gspread.authorize(_creds)
         
-        # スプレッドシートを開く（IDが正しいか、形式がスプレッドシートか確認済み前提）
+        # スプレッドシートを開く
         _sh = _gc.open_by_key(SPREADSHEET_ID)
         
+        # 1. 通常の Update シート（課題7, 8のサマリなど）
         try:
             _ws = _sh.worksheet(WORKSHEET_TITLE)
         except gspread.WorksheetNotFound:
@@ -637,17 +691,13 @@ try:
 
         _matrix = build_update_sheet_values()
         _ws.clear()
-
-        # 値の書き込み（Timestampを文字列化したマトリックスを使用）
         try:
             _ws.update(values=_matrix, range_name="A1", value_input_option="USER_ENTERED")
         except TypeError:
-            # 古いバージョンのgspread用のフォールバック
             _ws.update("A1", _matrix, value_input_option="USER_ENTERED")
-
         print(f"gspread: スプレッドシート「{WORKSHEET_TITLE}」を更新しました。")
 
-        # 課題11: 課題8の整形前データを別シートへ（ヘッダー＋全行。シート関数で工程時間などを再現する前提）
+        # 2. 課題11: Update_元データ（全件）
         _matrix_raw = _df_to_flat_matrix(df_update_source_pre_task8)
         _n_raw_rows = len(_matrix_raw)
         _n_raw_cols = len(_matrix_raw[0]) if _matrix_raw else 1
@@ -664,15 +714,34 @@ try:
             _ws_raw.update(values=_matrix_raw, range_name="A1", value_input_option="USER_ENTERED")
         except TypeError:
             _ws_raw.update("A1", _matrix_raw, value_input_option="USER_ENTERED")
+        print(f"gspread: 「{WORKSHEET_TITLE_PRE_TASK8}」を更新しました。")
 
-        print(
-            f"gspread: 「{WORKSHEET_TITLE_PRE_TASK8}」を更新しました "
-            f"（行≈{_n_raw_rows - 1}, 列={_n_raw_cols}）。"
-        )
+        # 3. ★新規追加：Update_遅延注文詳細（pass_date と数値化された工程時間込み）
+        _matrix_detail = _df_to_flat_matrix(df_delayed_export)
+        _n_det_rows = len(_matrix_detail)
+        _n_det_cols = len(_matrix_detail[0]) if _matrix_detail else 1
+        try:
+            _ws_detail = _sh.worksheet(WORKSHEET_TITLE_DELAY_DETAIL)
+        except gspread.WorksheetNotFound:
+            _ws_detail = _sh.add_worksheet(
+                title=WORKSHEET_TITLE_DELAY_DETAIL, 
+                rows=max(1000, _n_det_rows + 50), 
+                cols=max(20, _n_det_cols + 5)
+            )
+        _ws_detail.clear()
+        try:
+            _ws_detail.update(values=_matrix_detail, range_name="A1", value_input_option="USER_ENTERED")
+        except TypeError:
+            _ws_detail.update("A1", _matrix_detail, value_input_option="USER_ENTERED")
+        
+        print(f"gspread: 「{WORKSHEET_TITLE_DELAY_DETAIL}」を更新しました（pass_date追加済み）。")
+
     else:
         print("gspread スキップ: Colab 環境ではありません。")
 except Exception as e:
     print(f"gspread 更新中にエラーが発生しました: {e}")
+
+
 
 # %% [markdown]
 # ## 追加: データ集計・DataStorage を使った簡易分析
@@ -727,3 +796,4 @@ if jo_paths:
     print(jdf.groupby("d", dropna=False).size().to_string())
 else:
     print("【参考】join_orders の CSV が見つかりませんでした")
+

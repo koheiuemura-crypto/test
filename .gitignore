@@ -1,0 +1,7 @@
+*.gsheet
+*.gslides
+desktop.ini
+output/
+temp/
+*.csv
+データ集計・DataStorage/

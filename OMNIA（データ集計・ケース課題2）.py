@@ -17,22 +17,49 @@ OMNIA（データ集計・ケース課題2）
     課題4〜6: フィルタ・型整形・日付変換
     課題7〜8: 遅延率集計・工程別要因分析
     課題9: output フォルダの Excel（.xlsx）への集約出力と（Colab 時）Google スプレッドシートへの書き込み
+    課題11: 課題8整形前データをスプレッドシート「Update_元データ」に抽出（シート上で関数練習用）
+
+実行ログについて:
+    .py をターミナルや「Run Python File」で動かすと、Jupyter と違い「最後に書いた変数名」は
+    画面に出ません。本スクリプトでは各ステップで print で形状・先頭行などを出し、
+    あわせてコメントで「何が起きたか」を説明します（行数は CSV の期間により変動します）。
 """
 
 # =============================================================================
-# セル: ライブラリとデータルート解決
+# ライブラリ読み込み
 # =============================================================================
-# sys:
-#   実行中に「今 Colab かどうか」を判定するために sys.modules を参照する。
-# pandas (pd):
-#   表形式データの読み込み・結合・集計・出力の中心ライブラリ。
-# pathlib.Path:
-#   OS に依存しないパス操作（/ で連結、存在確認など）。
+# sys … Colab かどうか（google.colab が読み込まれているか）を判定するために使う。
+# pandas … 表データの読み込み・結合・集計の中心。
+# pathlib.Path … Windows / Mac 共通のパス操作。
 # %%
 import sys
-import os
 import pandas as pd
 from pathlib import Path
+
+
+def print_step_banner(lesson_id: str, title: str, *description_lines: str) -> None:
+    """課題の区切りをはっきり表示する（ログを追いやすくする）。"""
+    bar = "=" * 70
+    print(f"\n{bar}\n{lesson_id} {title}\n{bar}")
+    for line in description_lines:
+        print(f"  {line}")
+
+
+def print_dataframe_digest(name: str, df: pd.DataFrame, *, n_head: int = 3, max_col_print: int = 14) -> None:
+    """
+    DataFrame の「ざっくり中身」を標準出力に出す。
+    Jupyter ではセルの最後に df と書けば表示されるが、.py では print が必要。
+    """
+    print(f"\n── 【{name}】概要 ──")
+    print(f"  行数 × 列数: {df.shape[0]:,} × {df.shape[1]}")
+    col_list = [str(c) for c in df.columns]
+    preview = ", ".join(col_list[:max_col_print])
+    if len(col_list) > max_col_print:
+        preview += f", …（ほか {len(col_list) - max_col_print} 列）"
+    print(f"  列名: {preview}")
+    if n_head > 0 and len(df) > 0:
+        print(f"  先頭 {n_head} 行:")
+        print(df.head(n_head).to_string(max_cols=max_col_print))
 
 
 def resolve_data_storage() -> Path:
@@ -86,37 +113,42 @@ if "google.colab" in sys.modules:
 
 # 以降の読み込みはすべてこのルートからの相対パスで行う。
 DATA_STORAGE = resolve_data_storage()
-print("DATA_STORAGE =", DATA_STORAGE)
+print("\n【環境】データフォルダを解決しました。")
+print(f"  DATA_STORAGE = {DATA_STORAGE}")
 
 # =============================================================================
 # 課題 1: 複数の日付の order_data CSV を1つの DataFrame にまとめる
 # =============================================================================
-# order_data ディレクトリ内の、ファイル名パターンに一致する CSV だけを対象にする。
-# 教材では 2022年12月の複数日分（例: order_data_2022_12_01.csv）を想定。
+# やること: 「order_data_2022_12_*.csv」に一致するファイルを全部読み、縦に足し合わせる。
+# 結果: df_orders に「12月分の全注文行」が入る（ファイルが何日分あるかで行数が変わる）。
 # %%
-# Path / "子" は pathlib の書き方で、OS 非依存でパスをつなぐ（Windows でも動く）。
-order_dir = DATA_STORAGE / "order_data"
-order_dir
+print_step_banner(
+    "課題1",
+    "order_data の複数CSVを1つの DataFrame に結合",
+    "パターン order_data_2022_12_*.csv に一致するファイルだけ読む（誤読込み防止）。",
+    "pd.concat(..., ignore_index=True) で行インデックスを 0 から振り直す。",
+)
 
-# glob(pattern):
-#   ワイルドカードに一致するファイルパスを列挙する。イテレータだが sorted(list(...)) で並べ替えて使う。
-# パターンを絞ることで、意図しない CSV を読み込まないようにする。
+# Path / "サブフォルダ名" … Windows でも Mac でも同じ書き方でパスをつなげる。
+order_dir = DATA_STORAGE / "order_data"
+
+# sorted(glob(...)) … ワイルドカード * に一致するファイル名を、名前順に並べたリストにする。
 paths_orders = sorted(order_dir.glob("order_data_2022_12_*.csv"))
 if not paths_orders:
     raise FileNotFoundError(
         f"order_data の CSV が見つかりません: {order_dir} / order_data_2022_12_*.csv"
     )
+print(f"  読み込み対象ファイル数: {len(paths_orders)} 本")
+print(f"  例（先頭3本）: {[p.name for p in paths_orders[:3]]}")
 
-# リスト内包表記: 各パスを read_csv で DataFrame にし、リストに格納する。
-# 文字コードはデフォルト UTF-8 想定（教材 CSV に合わせる）。
+# [pd.read_csv(p) for p in paths_orders] … 各 CSV を1つずつ DataFrame にし、リストにする（内包表記）。
 dfs_orders = [pd.read_csv(p) for p in paths_orders]
 
-# concat(..., ignore_index=True):
-#   縦に連結し、行インデックスを 0 から振り直す（元ファイルの行番号が残らないようにする）。
+# pd.concat(..., ignore_index=True) … 縦に連結。ignore_index で 0,1,2,… の連番にし直す。
 df_orders = pd.concat(dfs_orders, ignore_index=True)
 
-# head(): 先頭5行だけ表示（Jupyter 風の確認用。スクリプト実行時は標準出力には出ない場合あり）。
-df_orders.head(5)
+print_dataframe_digest("df_orders（課題1の結果）", df_orders, n_head=3)
+# 実行結果の目安: 行数は「1日あたり約1万行 × 日数」程度。列は order_no, time_type, … など注文マスタの列。
 
 # %% [markdown]
 # # 課題 2: データの重複行を削除
@@ -124,37 +156,39 @@ df_orders.head(5)
 # =============================================================================
 # 課題 2: 完全に同一の行（全列一致）を重複として削除する
 # =============================================================================
-# 課題1の結果 df_orders をそのまま使う（再読込しない＝一貫性を保つ）。
+# やること: 全列の値がそっくり同じ行は2行目以降を削除する（誤って二重に入った行の除去）。
+# 結果: df_dedup。通常は件数が少し減るか、ほぼ同じ。
 # %%
-df_dedup = df_orders.copy()
-df_dedup = df_orders.copy()
+print_step_banner(
+    "課題2",
+    "完全に同じ行の重複を削除",
+    "duplicated() … 2行目以降の重複を True にするマスク。",
+    "drop_duplicates() … 重複行を落とし、先頭行だけ残す（既定）。",
+)
 
-# 削除前の行数を記録（レポート用）。
+df_dedup = df_orders.copy()
 n_before = len(df_dedup)
-n_before = len(df_dedup)
-# duplicated(): 2行目以降の重複を True とするマスク。keep 指定なしなら先頭を残す既定。
 dup_mask = df_dedup.duplicated()
-n_dup = dup_mask.sum()
-
-# drop_duplicates(): 重複行を落とす。reset_index(drop=True) でインデックスを連番に整える。
+n_dup = int(dup_mask.sum())
 df_dedup = df_dedup.drop_duplicates().reset_index(drop=True)
 n_after = len(df_dedup)
 
-print(f"削除前: {n_before} 行, 重複行: {n_dup} 行, 削除後: {n_after} 行")
-df_dedup.head()
+print(f"\n【課題2の実行結果】")
+print(f"  削除前: {n_before:,} 行  /  重複として数えた行: {n_dup:,} 行  /  削除後: {n_after:,} 行")
+print_dataframe_digest("df_dedup（課題2の結果）", df_dedup, n_head=2)
 
 # %% [markdown]
 # ※データフレームの行数を求める
 
 # =============================================================================
-# （補足セル）統合後 DataFrame の行数だけを表示する
+# （補足）行数の検算用に、もう一度だけ同じ glob で読み直す
 # =============================================================================
-# 教材の「行数を求める」演習用。課題1と同じ glob で再度読み込んでいる点に注意（検算用途）。
+# 注意: 課題1の df_orders と行数が一致すれば、読み込みは整合している。
 # %%
 paths_orders = sorted((DATA_STORAGE / "order_data").glob("order_data_2022_12_*.csv"))
 dfs_orders = [pd.read_csv(p) for p in paths_orders]
 df_orders_rowcount = pd.concat(dfs_orders, ignore_index=True)
-print("行数:", len(df_orders_rowcount))
+print(f"\n【補足・検算】再読込みした行数: {len(df_orders_rowcount):,}（課題1の df_orders と同じになるはず）")
 
 # %% [markdown]
 # # 課題 3: データをマージする
@@ -162,16 +196,18 @@ print("行数:", len(df_orders_rowcount))
 # =============================================================================
 # 課題 3: order_no をキーに left join で3表を横に結合する
 # =============================================================================
-# left join の意味: 左（注文）の行はすべて残し、右に対応が無いときは欠損 NaN になる。
+# やること: 左＝注文マスタ、右＝配達ステータス履歴・店舗到着履歴を order_no でつなぐ。
+# left join … 左の行はすべて残す。右に対応が無い注文は NaN（欠損）になる。
+# 注意: order と driver 表に両方 created_at があると、2回目の結合後は created_at_x / created_at_y に分かれる。
 # %%
-orders_m = df_orders.copy()
+print_step_banner(
+    "課題3",
+    "3つの表を order_no でマージ（left join）",
+    "1回目: 注文 × delivery_status_history（クルー検索開始のUNIX時刻など）",
+    "2回目: その結果 × driver_shop_arrival_history（店舗到着時刻など）",
+)
 
-"""
-order_no	time_type	order_state	receive_type	approve_date	created_at	driver_id	delivery_date	latest_delivery_date	accept_date	pickup_date	pass_date	local_area_flag
-0	BY534M	1	4	2	2022/12/1 0:00	2022/12/1 0:00	5606.0	2022/12/1 0:53	2022/12/1 1:23	2022/12/1 0:07	2022/12/1 0:23	2022/12/1 0:44	0
-1	GV384O	1	4	2	2022/12/1 0:12	2022/12/1 0:03	76304.0	2022/12/1 0:36	2022/12/1 1:06	2022/12/1 0:14	2022/12/1 0:26	2022/12/1 0:48	0
-2	WK460E	1	4	2	2022/12/1 0:06	2022/12/1 0:05	17544.0	2022/12/1 0:48	2022/12/1 1:18	2022/12/1 0:13	2022/12/1 0:17	2022/12/1 0:32	0
-"""
+orders_m = df_orders.copy()
 
 deliv_dir = DATA_STORAGE / "delivery_status_history_data"
 paths_deliv = sorted(deliv_dir.glob("delivery_status_history_data_2022_12_*.csv"))
@@ -179,15 +215,7 @@ if not paths_deliv:
     raise FileNotFoundError(f"delivery_status_history の CSV が見つかりません: {deliv_dir}")
 dfs_deliv = [pd.read_csv(p) for p in paths_deliv]
 df_delivery = pd.concat(dfs_deliv, ignore_index=True)
-
-"""
-	created_date	order_no
-0	1669820403	NC509T
-1	1669820403	QL837B
-2	1669820424	JU264A
-3	1669820452	AQ492G
-4	1669820522	KV408T
-"""
+print(f"  delivery_status_history: {len(paths_deliv)} ファイル → {len(df_delivery):,} 行")
 
 drv_dir = DATA_STORAGE / "driver_shop_arrival_history_data"
 paths_drv = sorted(drv_dir.glob("driver_shop_arrival_history_data_2022_12_*.csv"))
@@ -195,52 +223,52 @@ if not paths_drv:
     raise FileNotFoundError(f"driver_shop_arrival_history の CSV が見つかりません: {drv_dir}")
 dfs_drv = [pd.read_csv(p) for p in paths_drv]
 df_driver = pd.concat(dfs_drv, ignore_index=True)
+print(f"  driver_shop_arrival_history: {len(paths_drv)} ファイル → {len(df_driver):,} 行")
 
-"""
-driver_id	order_no	shop_arrival_at	created_at
-0	38814	NC509T	2022/12/1 0:00	2022/12/1 0:00
-1	21510	PV768H	2022/12/1 0:00	2022/12/1 0:00
-2	24607	PC248Y	2022/12/1 0:01	2022/12/1 0:01
-"""
-
-# merge 1回目: 注文 × 配達ステータス履歴。
-# merge 2回目: その結果 × 店舗到着履歴。
-# 両方に created_at があるため、pandas は自動で created_at_x / created_at_y にリネームする（衝突回避）。
 merged = orders_m.merge(df_delivery, on="order_no", how="left")
 merged = merged.merge(df_driver, on="order_no", how="left")
-merged.head()
 
-"""
-order_no	time_type	order_state	receive_type	approve_date	created_at_x	driver_id_x	delivery_date	latest_delivery_date	accept_date	pickup_date	pass_date	local_area_flag	created_date	driver_id_y	shop_arrival_at	created_at_y
-0	BY534M	1	4	2	2022/12/1 0:00	2022/12/1 0:00	5606.0	2022/12/1 0:53	2022/12/1 1:23	2022/12/1 0:07	2022/12/1 0:23	2022/12/1 0:44	0	1.669821e+09	5606.0	2022/12/1 0:16	2022/12/1 0:16
-1	GV384O	1	4	2	2022/12/1 0:12	2022/12/1 0:03	76304.0	2022/12/1 0:36	2022/12/1 1:06	2022/12/1 0:14	2022/12/1 0:26	2022/12/1 0:48	0	1.669821e+09	76304.0	2022/12/1 0:25	2022/12/1 0:25
-2	WK460E	1	4	2	2022/12/1 0:06	2022/12/1 0:05	17544.0	2022/12/1 0:48	2022/12/1 1:18	2022/12/1 0:13	2022/12/1 0:17	2022/12/1 0:32	0	1.669821e+09	17544.0	2022/12/1 0:15	2022/12/1 0:15
-"""
+print(f"\n【課題3の実行結果】")
+print(f"  マージ後の行数: {len(merged):,}（左の注文行数と同じ。1注文に履歴が複数あると行が増える場合あり）")
+print(f"  マージ後の列数: {merged.shape[1]}（suffix _x/_y が付いた列に注意）")
+print_dataframe_digest("merged（課題3の結果）", merged, n_head=2)
+# （参考イメージ）df_delivery は created_date（UNIX秒）と order_no など。
+# （参考イメージ）マージ後は created_date, shop_arrival_at が付き、created_at は _x=注文側・_y=到着履歴側。
 
-# %% [markdown]
-# # 課題 4: データをフィルターして抽出する
 # =============================================================================
-# 課題 4: 分析対象に絞り込む（ビジネスルールは教材に準拠）
+# 課題 4: データをフィルターして抽出する
 # =============================================================================
-# order_state == 4 … 注文完了など、教材で指定の状態。
-# receive_type == 2 … デリバリー受取など、教材で指定の受取タイプ。
-# 括弧で条件を囲み & で AND。最後に .copy() して SettingWithCopyWarning を避ける。
+# やること: 分析に使う注文だけ残す（教材どおりの条件）。
+#   order_state == 4 … 調理完了など「完了系」の状態。
+#   receive_type == 2 … デリバリー。
+# & は「かつ」、条件は ( ) でくくる。
+# .copy() … フィルタ後の「ビュー」ではなくコピーを作り、後で警告が出にくくする。
 # %%
+print_step_banner(
+    "課題4",
+    "条件で行を絞り込み（フィルタ）",
+    "order_state == 4 かつ receive_type == 2 の行だけ残す。",
+)
+
 filtered = merged[(merged["order_state"] == 4) & (merged["receive_type"] == 2)].copy()
-print("マージ後:", len(merged), "行 → フィルター後:", len(filtered), "行")
-filtered.head()
-"""
-order_no	time_type	order_state	receive_type	approve_date	created_at_x	driver_id_x	delivery_date	latest_delivery_date	accept_date	pickup_date	pass_date	local_area_flag	created_date	driver_id_y	shop_arrival_at	created_at_y
-0	BY534M	1	4	2	2022/12/1 0:00	2022/12/1 0:00	5606.0	2022/12/1 0:53	2022/12/1 1:23	2022/12/1 0:07	2022/12/1 0:23	2022/12/1 0:44	0	1.669821e+09	5606.0	2022/12/1 0:16	2022/12/1 0:16
-1	GV384O	1	4	2	2022/12/1 0:12	2022/12/1 0:03	76304.0	2022/12/1 0:36	2022/12/1 1:06	2022/12/1 0:14	2022/12/1 0:26	2022/12/1 0:48	0	1.669821e+09	76304.0	2022/12/1 0:25	2022/12/1 0:25
-2	WK460E	1	4	2	2022/12/1 0:06	2022/12/1 0:05	17544.0	2022/12/1 0:48	2022/12/1 1:18	2022/12/1 0:13	2022/12/1 0:17	2022/12/1 0:32	0	1.669821e+09	17544.0	2022/12/1 0:15	2022/12/1 0:15
-"""
-# %% [markdown]
-# # 課題 5: データを整形する
+print(f"\n【課題4の実行結果】")
+print(f"  マージ後: {len(merged):,} 行 → フィルター後: {len(filtered):,} 行")
+print_dataframe_digest("filtered（課題4の結果）", filtered, n_head=2)
 # =============================================================================
-# 課題 5: UNIX 秒・カラム名の整理など、後続処理向けに整形する
+# 課題 5: データを整形する
 # =============================================================================
+# やること:
+#   - delivery の created_date（UNIX秒の数値）を日時型に変える。
+#   - 注文側の created_at が created_at_x になっているなら、分かりやすく created_at に戻す。
+# 結果: df_shape（課題6で日付列をまとめて変換する土台）。
 # %%
+
+print_step_banner(
+    "課題5",
+    "UNIX秒の列を日時にし、列名を整理",
+    "unix_to_datetime() … pd.to_datetime(..., unit='s') でエポック秒→日時。",
+)
+
 
 def unix_to_datetime(series: pd.Series) -> pd.Series:
     """
@@ -257,7 +285,7 @@ df_shape = filtered.copy()
 if "created_date" in df_shape.columns:
     df_shape["created_date"] = unix_to_datetime(df_shape["created_date"])
 
-# 1回目の merge で注文側の created_at が created_at_x にリネームされている場合、
+# 1回目の merge で注文側の created_at が created_at_x にリネームされている場合、s
 # 分析しやすい名前 created_at に戻す（存在するときだけ）。
 if "created_at_x" in df_shape.columns:
     df_shape = df_shape.rename(columns={"created_at_x": "created_at"})
@@ -270,15 +298,19 @@ order_no	time_type	order_state	receive_type	approve_date	created_at	driver_id_x	
 1	GV384O	1	4	2	2022/12/1 0:12	2022/12/1 0:03	76304.0	2022/12/1 0:36	2022/12/1 1:06	2022/12/1 0:14	2022/12/1 0:26	2022/12/1 0:48	0	2022-11-30 15:13:01	76304.0	2022/12/1 0:25	2022/12/1 0:25
 2	WK460E	1	4	2	2022/12/1 0:06	2022/12/1 0:05	17544.0	2022/12/1 0:48	2022/12/1 1:18	2022/12/1 0:13	2022/12/1 0:17	2022/12/1 0:32	0	2022-11-30 15:12:56	17544.0	2022/12/1 0:15	2022/12/1 0:15
 """
-
-# %% [markdown]
-# # 課題 6: for文を使ってループ処理をする
-
 # =============================================================================
-# 課題 6: 指定した列をまとめて datetime 型に変換する（存在する列のみ）
+# 課題 6: for文を使ってループ処理をする
 # =============================================================================
-# errors="coerce": 解釈できない値は NaT（欠損日時）にする。解析時に除外しやすい。
+# やること: 日付が「文字列のまま」の列を、for で1列ずつ pd.to_datetime にかける。
+# errors="coerce" … 変換できない値は NaT（欠損の日時）にする。後で dropna しやすい。
+# 結果: df_loop（課題7以降の主役の DataFrame）。
 # %%
+print_step_banner(
+    "課題6",
+    "for 文で複数列をまとめて datetime 型へ",
+    "date_cols に名前が載っていて、かつ実際の列が存在するものだけ変換する。",
+)
+
 date_cols = [
     "approve_date",
     "created_at",
@@ -291,67 +323,85 @@ date_cols = [
     "created_at_y",  # 2回目 merge で付いたドライバ側 created_at
 ]
 
-df_shape[date_cols].head()
-"""
-	approve_date	created_at	delivery_date	latest_delivery_date	accept_date	pickup_date	pass_date	shop_arrival_at	created_at_y
-0	2022/12/1 0:00	2022/12/1 0:00	2022/12/1 0:53	2022/12/1 1:23	2022/12/1 0:07	2022/12/1 0:23	2022/12/1 0:44	2022/12/1 0:16	2022/12/1 0:16
-1	2022/12/1 0:12	2022/12/1 0:03	2022/12/1 0:36	2022/12/1 1:06	2022/12/1 0:14	2022/12/1 0:26	2022/12/1 0:48	2022/12/1 0:25	2022/12/1 0:25
-2	2022/12/1 0:06	2022/12/1 0:05	2022/12/1 0:48	2022/12/1 1:18	2022/12/1 0:13	2022/12/1 0:17	2022/12/1 0:32	2022/12/1 0:15	2022/12/1 0:15
-"""
-
-# for文で回してdatetime64に変換する
+_converted: list[str] = []
 df_loop = df_shape.copy()
 for col in date_cols:
     if col in df_loop.columns:
         df_loop[col] = pd.to_datetime(df_loop[col], errors="coerce")
+        _converted.append(col)
 
-# 変換結果の dtype だけ抜き出して確認（デバッグ・レポート用）。
-df_loop.dtypes.loc[[c for c in date_cols if c in df_loop.columns]]
-"""
-approve_date	datetime64[ns]
-created_at	datetime64[ns]
-delivery_date	datetime64[ns]
-latest_delivery_date	datetime64[ns]
-accept_date	datetime64[ns]
-pickup_date	datetime64[ns]
-pass_date	datetime64[ns]
-shop_arrival_at	datetime64[ns]
-created_at_y	datetime64[ns]
-"""
-
-# %% [markdown]
-# # 課題 7: 遅延している注文の割合を集計する
-# 要件: `latest_delivery_date` より配達完了（`delivery_date`）が遅れた注文を「遅延」とし、**承認日（approve_date）ごと**に遅延率を集計する。
+print(f"\n【課題6の実行結果】 datetime に変換した列: {len(_converted)} 本 → {_converted}")
+_dt_subset = [c for c in date_cols if c in df_loop.columns]
+print("  変換後の dtype（抜粋）:")
+print(df_loop.dtypes.loc[_dt_subset].to_string())
+print_dataframe_digest("df_loop（課題6の結果・日付列は datetime）", df_loop, n_head=2)
 
 # =============================================================================
-# 課題 7: 遅延フラグと承認日単位の遅延率
+# 課題 7: 遅延している注文の割合を集計する
 # =============================================================================
-# 遅延の定義: delivery_date > latest_delivery_date（厳密に「遅い」＝等しくない）。
-# 同一 order_no が複数行ある場合は先頭行のみ採用（マージの多重化対策）。
+# やること:
+#   1) order_no ごとに1行にまとめる（マージで同じ注文が複数行になっているため）。
+#   2) 遅延フラグ: 実際の配達完了 pass_date が、最遅期限 latest_delivery_date を過ぎていれば True。
+#      （カラム説明書: latest は配達予定＋30分。超過＝遅延）
+#   3) 承認日 approve_date の「日」単位でグループ化し、遅延率 delay_rate を出す。
+# 結果: df_delay_daily（日次サマリ）、df_delay_base（注文1行単位のベース表）。
 # %%
+print_step_banner(
+    "課題7",
+    "遅延フラグと承認日別の遅延率",
+    "drop_duplicates(subset=['order_no'], keep='first') … 1注文1行に圧縮。",
+    "is_delayed = pass_date > latest_delivery_date … 実完了が最遅期限を超えたか。",
+)
+
 df_orders_unique = df_loop.drop_duplicates(subset=["order_no"], keep="first").copy()
+print(f"\n【課題7・中間】 order_no 重複除去後: {len(df_orders_unique):,} 行")
 
-# 3列いずれか欠損の行は遅延判定不能のため除外する。
-_delay_required = ["approve_date", "delivery_date", "latest_delivery_date"]
+_delay_required = ["approve_date", "delivery_date", "latest_delivery_date", "pass_date"]
 df_delay_base = df_orders_unique.dropna(subset=_delay_required).copy()
+print(f"  遅延判定に必要な4列に欠損がない行: {len(df_delay_base):,} 行（欠損行は除外済み）")
 
-df_delay_base["is_delayed"] = df_delay_base["delivery_date"] > df_delay_base["latest_delivery_date"]
+df_delay_base["is_delayed"] = df_delay_base["pass_date"] > df_delay_base["latest_delivery_date"]
+_n_delayed = int(df_delay_base["is_delayed"].sum())
+print(f"  遅延と判定された注文（全体）: {_n_delayed:,} / {len(df_delay_base):,}")
+
 # normalize(): 時刻を 00:00:00 にそろえた日付（同日のグルーピング用）。
 df_delay_base["approve_date_day"] = df_delay_base["approve_date"].dt.normalize()
 
 # groupby.agg: 日付ごとに件数と遅延件数を集計。
 # assign で delay_rate を追加（pandas のチェインスタイル）。
 df_delay_daily = (
+    # 1. 承認日（時刻を 00:00:00 に切り捨てた列）でグループ化する
+    # dropna=False: 承認日が欠損しているデータも無視せず集計に含める設定
     df_delay_base.groupby("approve_date_day", dropna=False)
-    .agg(n_orders=("order_no", "count"), n_delayed=("is_delayed", "sum"))
+    
+    # 2. グループごとに集計（Aggregation）を行う
+    # n_orders: 注文番号の数をカウント（分母）
+    # n_delayed: 遅延フラグ(True=1, False=0)の合計値を計算（分子）
+    .agg(
+        n_orders=("order_no", "count"), 
+        n_delayed=("is_delayed", "sum")
+    )
+    
+    # 3. 新しい列「delay_rate（遅延率）」を追加する
+    # lambda d: その時点のデータフレームを参照し、(分子 / 分母) を計算
+    # .round(4): 小数点第4位で四捨五入（例: 0.1234 = 12.34%）
     .assign(delay_rate=lambda d: (d["n_delayed"] / d["n_orders"]).round(4))
+    
+    # 4. グループ化解除：インデックスになっていた「承認日」を普通の列に戻す
     .reset_index()
+    
+    # 5. 列名を「承認日」という日本語の名前に書き換える（出力・レポート用）
     .rename(columns={"approve_date_day": "承認日"})
 )
+
+len(df_delay_daily)
 
 print("【課題7】承認日別 遅延率（delay_rate = n_delayed / n_orders）")
 print(df_delay_daily.to_string(index=False))
 print(f"遅延注文数（全体）: {df_delay_base['is_delayed'].sum()} / {len(df_delay_base)}")
+
+# 課題11: スプレッドシート「Update_元データ」用。課題8で付与する工程時間（h_*）・ボトルネック列は含まない。
+df_update_source_pre_task8 = df_delay_base.copy()
 
 # %% [markdown]
 # # 課題 8: 遅延の要因分析
@@ -360,9 +410,10 @@ print(f"遅延注文数（全体）: {df_delay_base['is_delayed'].sum()} / {len(
 # =============================================================================
 # 課題 8: 遅延注文のみを対象に工程間の経過時間を分解する
 # =============================================================================
-# 工程の区切りは教材データの列名に合わせた典型的なフロー:
-#   承認 → 受付 → ピックアップ → 通過 → 配達完了
-# 店舗到着時刻がある場合は先頭に「店舗到着〜受付」を挿入する。
+# 工程の区切りはカラム説明書の時系列に合わせる:
+#   店舗承認 → クルーが配達を受諾(accept_date) → 店舗到着(shop_arrival_at) → ピックアップ → 配達完了(pass_date)
+# 注意: 「店舗到着〜受付」のように *到着を先* にすると、受諾が到着より前のデータが多く、
+#       (受諾 - 到着) が負に偏る。正しくは「受諾〜店舗到着」＝ accept_date → shop_arrival_at の経過時間。
 # %%
 
 
@@ -382,11 +433,11 @@ df_delayed = df_delay_base[df_delay_base["is_delayed"]].copy()
 _stage_defs = [
     ("h_承認〜受付", "approve_date", "accept_date"),
     ("h_受付〜ピックアップ", "accept_date", "pickup_date"),
-    ("h_ピックアップ〜通過", "pickup_date", "pass_date"),
-    ("h_通過〜配達完了", "pass_date", "delivery_date"),
+    ("h_ピックアップ〜配達完了", "pickup_date", "pass_date"), # pass_dateは配達完了時間
 ]
+# 受諾のあと店舗へ向かい到着するまでの時間（通常は正の値になりやすい）
 if "shop_arrival_at" in df_delayed.columns:
-    _stage_defs.insert(0, ("h_店舗到着〜受付", "shop_arrival_at", "accept_date"))
+    _stage_defs.insert(0, ("h_受諾〜店舗到着", "accept_date", "shop_arrival_at"))
 
 stage_col_names: list[str] = []
 for col_name, c_from, c_to in _stage_defs:
@@ -455,6 +506,7 @@ df_delayed_export = df_delayed[_detail_cols].copy()
 # %% [markdown]
 # # 課題 9: スプレッドシートへのデータ抽出
 # 課題7・8の集計をスプレッドシート「Update」に書き込む（gspread）。併せて `output` フォルダに Excel（.xlsx）へ保存する。
+# 課題11: 課題8整形前の全件（order_no 単位・is_delayed まで）を「Update_元データ」に書き込み、シート関数で整形練習できるようにする。
 # シート: https://docs.google.com/spreadsheets/d/1H9xF17WzjOqqkgkEmxnKxwOxKBPBJjrDxRMseNSYq70/edit?gid=1132557014#gid=1132557014
 # 書き込み権限ないのでコピーしておきましょう
 
@@ -472,6 +524,7 @@ df_delayed_export = df_delayed[_detail_cols].copy()
 # =============================================================================
 SPREADSHEET_ID = "1H9xF17WzjOqqkgkEmxnKxwOxKBPBJjrDxRMseNSYq70"
 WORKSHEET_TITLE = "Update"
+WORKSHEET_TITLE_PRE_TASK8 = "Update_元データ"
 
 # 1つ前のディレクトリの output フォルダを起点にする
 if "__file__" in globals():
@@ -505,6 +558,22 @@ def _df_to_sheet_matrix(title: str, df: pd.DataFrame) -> list[list]:
     return out
 
 
+def _df_to_flat_matrix(df: pd.DataFrame) -> list[list]:
+    """1行目が列名の素の表（課題11「Update_元データ」用）。タイトル行は付けない。"""
+    out: list[list] = [list(df.columns.astype(str))]
+    for _, row in df.iterrows():
+        line: list = []
+        for v in row.tolist():
+            if pd.isna(v):
+                line.append("")
+            elif isinstance(v, (pd.Timestamp, pd.Timedelta)) or hasattr(v, "isoformat"):
+                line.append(str(v))
+            else:
+                line.append(v)
+        out.append(line)
+    return out
+
+
 def build_update_sheet_values() -> list[list]:
     """「Update」シート用に各課題の結果を縦に連結する。"""
     blocks: list[list] = []
@@ -526,6 +595,7 @@ try:
         df_delay_stage_summary.to_excel(writer, sheet_name="課題8_工程集計", index=False)
         df_delay_bottleneck.to_excel(writer, sheet_name="課題8_ボトルネック", index=False)
         df_delayed_export.to_excel(writer, sheet_name="課題8_遅延明細", index=False)
+        df_update_source_pre_task8.to_excel(writer, sheet_name="課題11_Update_元データ", index=False)
     print(f"Excel 出力しました: {EXCEL_OUTPUT_PATH.resolve()}")
 except ImportError:
     print("openpyxl が未インストールです。pip install openpyxl を実行してください。")
@@ -553,15 +623,38 @@ try:
 
         _matrix = build_update_sheet_values()
         _ws.clear()
-        
+
         # 値の書き込み（Timestampを文字列化したマトリックスを使用）
         try:
             _ws.update(values=_matrix, range_name="A1", value_input_option="USER_ENTERED")
         except TypeError:
             # 古いバージョンのgspread用のフォールバック
             _ws.update("A1", _matrix, value_input_option="USER_ENTERED")
-            
+
         print(f"gspread: スプレッドシート「{WORKSHEET_TITLE}」を更新しました。")
+
+        # 課題11: 課題8の整形前データを別シートへ（ヘッダー＋全行。シート関数で工程時間などを再現する前提）
+        _matrix_raw = _df_to_flat_matrix(df_update_source_pre_task8)
+        _n_raw_rows = len(_matrix_raw)
+        _n_raw_cols = len(_matrix_raw[0]) if _matrix_raw else 1
+        try:
+            _ws_raw = _sh.worksheet(WORKSHEET_TITLE_PRE_TASK8)
+        except gspread.WorksheetNotFound:
+            _ws_raw = _sh.add_worksheet(
+                title=WORKSHEET_TITLE_PRE_TASK8,
+                rows=max(1000, _n_raw_rows + 50),
+                cols=max(26, _n_raw_cols + 5),
+            )
+        _ws_raw.clear()
+        try:
+            _ws_raw.update(values=_matrix_raw, range_name="A1", value_input_option="USER_ENTERED")
+        except TypeError:
+            _ws_raw.update("A1", _matrix_raw, value_input_option="USER_ENTERED")
+
+        print(
+            f"gspread: 「{WORKSHEET_TITLE_PRE_TASK8}」を更新しました "
+            f"（行≈{_n_raw_rows - 1}, 列={_n_raw_cols}）。"
+        )
     else:
         print("gspread スキップ: Colab 環境ではありません。")
 except Exception as e:
@@ -573,7 +666,7 @@ except Exception as e:
 # 前提: 上記の `df_dedup`, `merged`, `df_loop` まで実行済み。
 
 # =============================================================================
-# 追加セル: 教材データのざっくりした分布確認（提出必須ではない場合あり）
+# 追加セル: 
 # =============================================================================
 # %%
 od = df_dedup.copy()
@@ -601,8 +694,9 @@ print()
 
 if "shop_arrival_at" in df_loop.columns and "accept_date" in df_loop.columns:
     tmp = df_loop.dropna(subset=["shop_arrival_at", "accept_date"]).copy()
-    tmp["lead_min"] = (tmp["accept_date"] - tmp["shop_arrival_at"]).dt.total_seconds() / 60.0
-    print("【5】店舗到着〜受付までの分数（分）※負の値はデータ不整合の可能性")
+    # 受諾してから店舗に着くまで（分）＝ 課題8 の h_受諾〜店舗到着 と同じ向き
+    tmp["lead_min"] = (tmp["shop_arrival_at"] - tmp["accept_date"]).dt.total_seconds() / 60.0
+    print("【5】受諾〜店舗到着までの分数（分）※負の値は記録順の逆転・欠損等の可能性")
     print(tmp["lead_min"].describe(percentiles=[0.5, 0.9, 0.99]).to_string())
 else:
     print("【5】スキップ: shop_arrival_at / accept_date がありません")

@@ -148,8 +148,12 @@ join_orders = {
 # %%
 # 今日の購入者リストを作成
 buyer_ids = {o["user_id"] for o in join_orders.values()}
-# buyer_ids [o["user_id"] for o in join_orders.values()]　
-# len(buyer_ids)
+
+"""
+join_orders.keys()
+buyer_ids [o["user_id"] for o in join_orders.values()]
+len(buyer_ids)
+"""
 
 # 既存ユーザーと新規ユーザーに分ける
 existing_buyers = buyer_ids & user_ids_existing
@@ -157,6 +161,10 @@ new_buyers = buyer_ids - user_ids_existing
 
 # 既存ユーザーの購入数を計算（注文件数）
 existing_order_count = sum(1 for o in join_orders.values() if o["user_id"] in user_ids_existing)
+"""
+user_ids_existing
+[1 for o in join_oredrs.values() if o["user_id"] in user_ids_existing]
+"""
 
 # 新規ユーザーの購入数を計算（注文件数）
 new_order_count = sum(1 for o in join_orders.values() if o["user_id"] not in user_ids_existing)
@@ -208,7 +216,8 @@ print(f"今日のデリバリー注文のみの既存定価購入率: {rate_teik
 
 # %% [markdown]
 # ## 問題3
-# - 本問題では、還元祭のクーポン付与のロジックを組んでいきます。最終的には、どのユーザーに、どれくらいの額のクーポンを付与するか、そのようなクーポンコードになるか、をまとめた、`user_id`、`discount_price`、`discount_code`の3列だけのcsvファイルを出力して下さい。
+# - 本問題では、還元祭のクーポン付与のロジックを組んでいきます。最終的には、どのユーザーに、どれくらいの額のクーポンを付与するか、そのようなクーポンコードになるか、
+# をまとめた、`user_id`、`discount_price`、`discount_code`の3列だけのcsvファイルを出力して下さい。
 #   - 以下が今回の対象注文条件です。
 #     - 商品金額（`item_total_price`）が1500円以上
 #     - 予約注文を除く（`time_type=1`）
@@ -268,6 +277,8 @@ df_f = df.loc[mask].copy()
 
 is_free = dc.loc[df_f.index].str.startswith("FREE-", na=False)
 base = df_f["item_total_price"] - df_f["item_discount_price"]
+
+# 
 base = base - df_f["discount_price"].where(~is_free, 0)
 
 df_f["discount_price"] = (base * 0.3).round().astype(int)
@@ -289,11 +300,13 @@ out.head()
 #   - area_idは、以下の2種類があります。
 #     - shop_delivery_area_id（その注文の店舗があるエリア）
 #     - user_delivery_area_id（その注文のユーザーがいるエリア）
-#   - ユーザーチームとクルーチームが横断するプロジェクトにおいて、各エリアごとのデイリー平均注文数をデータとして持っていく必要があるので、（以下の定義に則り）データを集計してください。
+#   - ユーザーチームとクルーチームが横断するプロジェクトにおいて、各エリアごとのデイリー平均注文数をデータとして持っていく必要があるので、
+# （以下の定義に則り）データを集計してください。
 #
 # - 今回のデータ定義：ユーザーチームで使っている「注文数」とクルーチームが使っている「注文数」は微妙に異なります。
 #   - ユーザーチームは、ユーザーの位置を基に、地域ごとの施策を検討するため、ユーザーの位置をベースとして注文数を集計する。
-#   - クルーチームは、クルーをいかに店舗の位置の近くに寄せられるか、ということが大事である（正確に言えば、「注文数が増えてクルーを確保する必要がある」という文脈においての注文数は、店舗の位置ベースで考える必要がある）ので、店舗の位置ベースで注文数を集計する。
+#   - クルーチームは、クルーをいかに店舗の位置の近くに寄せられるか、ということが大事である（正確に言えば、「注文数が増えてクルーを確保する必要がある」
+#     という文脈においての注文数は、店舗の位置ベースで考える必要がある）ので、店舗の位置ベースで注文数を集計する。
 #
 # - 対象期間は、`2021/9/25〜9/28`で行って下さい。
 #
@@ -301,13 +314,16 @@ out.head()
 #
 # - 補足
 #     - この問題では、データの定義確認を学んでもらいます。
-#     - menu内でも、各チームの考えているデータ定義が異なるので、他チームからデータ抽出の依頼を受けたときや情報を連携する際は必ず、データ定義を確認してから、集計するようにしましょう。
+#     - menu内でも、各チームの考えているデータ定義が異なるので、他チームからデータ抽出の依頼を受けたときや情報を連携する際は必ず、
+#       データ定義を確認してから、集計するようにしましょう。
 
 # %%
 # 問題4: エリア別「デイリー平均注文数」（ユーザーチーム＝ユーザー位置、クルーチーム＝店舗位置）
 
 
 df4 = pd.concat([pd.read_csv(p, sep="\t") for p in paths], ignore_index=True)
+len(df4) # 65375
+
 df4["order_dt"] = pd.to_datetime(df4["order_date"])
 df4 = df4[(df4["order_dt"] >= "2021-09-25") & (df4["order_dt"] < "2021-09-29")].copy()
 df4["order_day"] = df4["order_dt"].dt.date
@@ -316,14 +332,25 @@ df4["order_day"] = df4["order_dt"].dt.date
 u_daily = df4.groupby(["user_delivery_area_id", "order_day"]).size().reset_index(name="n_orders")
 user_team_avg = u_daily.groupby("user_delivery_area_id")["n_orders"].mean().reset_index(name="daily_avg_orders")
 
+# 念のため確認
+max(user_team_avg["daily_avg_orders"])
+min(user_team_avg["daily_avg_orders"])
+user_team_avg["daily_avg_orders"].describe()
+
+# ユーザーのユニーク数とエリアIDのユニーク数のカウント
+df4["user_id"].nunique()
+df4["user_delivery_area_id"].nunique()
+
 # クルーチーム: shop_delivery_area_id 基準
 c_daily = df4.groupby(["shop_delivery_area_id", "order_day"]).size().reset_index(name="n_orders")
 crew_team_avg = c_daily.groupby("shop_delivery_area_id")["n_orders"].mean().reset_index(name="daily_avg_orders")
+crew_team_avg["daily_avg_orders"].describe()
 
 user_team_avg.to_csv(output_dir / "daily_avg_orders_user_team.csv", index=False, encoding="utf-8-sig")
 crew_team_avg.to_csv(output_dir / "daily_avg_orders_crew_team.csv", index=False, encoding="utf-8-sig")
 
 user_team_avg.head(10), crew_team_avg.head(10)
+
 
 # %%
 # 両チームの集計結果の行数・欠損の確認例

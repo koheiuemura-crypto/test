@@ -348,7 +348,6 @@ crew_team_avg["daily_avg_orders"].describe()
 
 user_team_avg.to_csv(output_dir / "daily_avg_orders_user_team.csv", index=False, encoding="utf-8-sig")
 crew_team_avg.to_csv(output_dir / "daily_avg_orders_crew_team.csv", index=False, encoding="utf-8-sig")
-
 user_team_avg.head(10), crew_team_avg.head(10)
 
 

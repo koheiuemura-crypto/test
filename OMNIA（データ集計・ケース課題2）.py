@@ -130,6 +130,7 @@ order_dir = DATA_STORAGE / "order_data"
 # sorted(glob(...)) … ワイルドカード * に一致するファイル名を、名前順に並べたリストにする。
 paths_orders = sorted(order_dir.glob("order_data_2022_12_*.csv"))
 if not paths_orders:
+    # ファイル見つからないとき強制終了
     raise FileNotFoundError(
         f"order_data の CSV が見つかりません: {order_dir} / order_data_2022_12_*.csv"
     )
@@ -357,6 +358,7 @@ print(f"  遅延判定に必要な4列に欠損がない行: {len(df_delay_base)
 
 df_delay_base["is_delayed"] = df_delay_base["pass_date"] > df_delay_base["latest_delivery_date"]
 _n_delayed = int(df_delay_base["is_delayed"].sum())
+# print(df_delay_base[df_delay_base["is_delayed"]].head()); print(len(df_delay_base[df_delay_base["is_delayed"]])) ;
 print(f"  遅延と判定された注文（全体）: {_n_delayed:,} / {len(df_delay_base):,}")
 
 # normalize(): 時刻を 00:00:00 にそろえた日付（同日のグルーピング用）。
@@ -388,6 +390,16 @@ df_delay_daily = (
     # 5. 列名を「承認日」という日本語の名前に書き換える（出力・レポート用）
     .rename(columns={"approve_date_day": "承認日"})
 )
+
+""" 
+df_delay_daily
+承認日	n_orders	n_delayed	delay_rate
+0	2022-12-01	10626	87	0.0082
+1	2022-12-02	10705	80	0.0075
+2	2022-12-03	13951	158	0.0113
+3	2022-12-04	15911	205	0.0129
+4	2022-12-05	22	8	0.3636
+"""
 
 len(df_delay_daily)
 

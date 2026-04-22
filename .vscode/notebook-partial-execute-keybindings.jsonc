@@ -1,14 +1,11 @@
 // =============================================================================
-// セル内の「選択した数行だけ」または「カーソル行だけ」を実行するためのキー設定の例
+// Ctrl+Shift+Enter … ノートブックのセル / .py エディタで「選択 or カーソル行」を実行
 // =============================================================================
-// 手順:
-//   1. 拡張機能「Notebook: Run Selection」(ChristofKaufmann.nb-run-selection) を入れる
-//      （.vscode/extensions.json の推奨一覧に含めてあります）
-//   2. Ctrl+Shift+P → 「Preferences: Open Keyboard Shortcuts (JSON)」
-//   3. 下の [ ... ] の中身を、あなたの keybindings.json の配列に追記する（カンマの位置に注意）
+// ・ノートブック: 拡張「Notebook: Run Selection」(ChristofKaufmann.nb-run-selection) が必要
+// ・.py ファイル: Jupyter の「Interactive Window で選択／行を実行」(jupyter.execSelectionInteractive)
 //
-// 既定の Shift+Enter（セル実行して下へ）と競合するため、ここでは Ctrl+Shift+Enter を割り当てています。
-// 別のキーにしたい場合は "key" だけ書き換えてください。
+// このリポジトリでは Cursor ユーザーの keybindings.json に同内容を追記済みの想定。
+// 別 PC では Ctrl+Shift+P →「Preferences: Open Keyboard Shortcuts (JSON)」に下記をマージ。
 // =============================================================================
 
 [
@@ -16,5 +13,10 @@
     "key": "ctrl+shift+enter",
     "command": "nb-run-selection.runSelectionOrLine",
     "when": "notebookCellEditorFocused && editorLangId == 'python'"
+  },
+  {
+    "key": "ctrl+shift+enter",
+    "command": "jupyter.execSelectionInteractive",
+    "when": "editorTextFocus && editorLangId == python && !notebookEditorFocused && !isCompositeNotebook && isWorkspaceTrusted"
   }
 ]

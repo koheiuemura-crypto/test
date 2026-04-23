@@ -1,0 +1,72 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "スプレッドシート: URLを workspace 設定 (googleSheets.sheetUrl) に反映",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/.vscode/sync-google-sheet-to-settings.ps1"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "スプレッドシート: 反映直後1秒待機 (設定再読み込み用)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-Command",
+        "Start-Sleep -Seconds 1"
+      ],
+      "dependsOn": "スプレッドシート: URLを workspace 設定 (googleSheets.sheetUrl) に反映",
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "Google スプレッドシート: Simple Browser (または統合ブラウザ) で開く",
+      "type": "shell",
+      "command": "echo",
+      "args": ["${input:openGoogleSheetSimpleBrowser}"],
+      "dependsOn": "スプレッドシート: 反映直後1秒待機 (設定再読み込み用)",
+      "dependsOrder": "sequence",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "never",
+        "echo": false,
+        "focus": false,
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Google スプレッドシート: 既定のブラウザで開く",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/.vscode/open-google-sheet.ps1"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "focus": false
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "openGoogleSheetSimpleBrowser",
+      "type": "command",
+      "command": "simpleBrowser.show",
+      "args": ["${config:googleSheets.sheetUrl}"]
+    }
+  ]
+}
